@@ -23,6 +23,16 @@ from . import validation
 # Справочные выборки
 # --------------------------------------------------------------------------- #
 
+def _effective_period(book: Book, worker: dict[str, Any]) -> int:
+    """Периодичность повторного инструктажа для конкретного работника."""
+    if worker.get("period_months"):
+        try:
+            return int(worker["period_months"])
+        except (TypeError, ValueError):
+            pass
+    return _org_period(book)
+
+
 def _org_period(book: Book) -> int:
     raw = book.org_value("default_period", str(config.DEFAULT_PERIOD_MONTHS))
     try:
@@ -294,12 +304,16 @@ def plan_training(book: Book, data: dict[str, Any], *, repeat_from: dict[str, An
         )
 
     if clean["type"] == "Повторный":
-        rule = rules.period_rule("Повторный", organization_period=_org_period(book))
-        if rule.note and not str(data.get("period_basis") or "").strip():
+        # Проверяем фактическую периодичность: индивидуальную или организационную.
+        effective = _effective_period(book, worker)
+        rule = rules.period_rule("Повторный", organization_period=effective)
+        if effective > rules.REPEAT_PERIOD_MONTHS and not str(data.get("period_basis") or "").strip():
             raise ValidationError(
-                rule.note,
-                fields={"type": "Укажите основание для периодичности больше 6 месяцев "
-                                 "или используйте срок не реже 1 раза в 6 месяцев."},
+                f"Указана периодичность повторного инструктажа {effective} мес. "
+                "Правила № 2464 устанавливают срок не реже одного раза в 6 месяцев, "
+                "поэтому для большего срока нужно основание.",
+                fields={"period_months": "Укажите основание для периодичности больше "
+                                         "6 месяцев или измените срок."},
             )
 
     duplicates = [

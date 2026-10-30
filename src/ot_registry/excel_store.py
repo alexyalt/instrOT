@@ -512,6 +512,21 @@ def save_book(
     expected = book.fingerprint if expected_fingerprint is None else expected_fingerprint
 
     with FileLock(lock_path):
+        # Пока книга проверяется после ручного редактирования, приложение
+        # не должно писать в неё: иначе правки пользователя будут потеряны.
+        if not initial:
+            try:
+                from .manual_mode import is_locked
+
+                if is_locked(book):
+                    raise BookLockedError(
+                        "Книга открыта для ручного редактирования в Excel. "
+                        "Закройте Excel, в разделе «Excel и резервные копии» нажмите "
+                        "«Проверить и перечитать» и подтвердите изменения."
+                    )
+            except ImportError:
+                pass
+
         if not initial and expected:
             current = fingerprint(path) if path.exists() else ""
             if current and current != expected:

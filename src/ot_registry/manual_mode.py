@@ -411,14 +411,23 @@ def accept_changes(book: Book, *, reason: str = "") -> dict[str, Any]:
             if sheet_name == "Инструктирующие" and not str(row.get("person_id") or ""):
                 row["person_id"] = row["id"]
 
-    if assigned:
-        save_book(fresh, action="manual_excel_accept", entity="Excel",
-                  reason=reason or "Принятие ручных правок",
-                  details={"assigned_ids": assigned}, make_backup=True)
-    else:
-        save_book(fresh, action="manual_excel_accept", entity="Excel",
-                  reason=reason or "Принятие ручных правок (без новых строк)",
-                  make_backup=True)
+    # Блокировка снимается до записи: иначе сохранение отклонит само себя.
+    # Если запись не удастся, блокировка возвращается — книга останется
+    # в состоянии «требуется проверка».
+    previous_state = read_state(fresh)
+    _write_state(fresh, ManualState(active=False))
+    try:
+        save_book(
+            fresh,
+            action="manual_excel_accept",
+            entity="Excel",
+            reason=reason or "Принятие ручных правок",
+            details={"assigned_ids": assigned},
+            make_backup=True,
+        )
+    except Exception:
+        _write_state(fresh, previous_state)
+        raise
 
     snapshot = _serialize(fresh)
     _snapshot_path(fresh).write_text(

@@ -26,7 +26,7 @@ from flask import (
     url_for,
 )
 
-from . import config, deadlines, printing, registration, services, validation
+from . import config, deadlines, manual_mode, migrations, printing, registration, services, validation
 from .errors import (
     AppError,
     BookChangedError,
@@ -790,6 +790,145 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         flash("Пакет закрыт." if not error else error["message"],
               "ok" if not error else "error")
         return redirect(url_for("archive"))
+
+    # -- ручной режим Excel ----------------------------------------------
+    def _excel_context(book, entry, **extra):
+        state = manual_mode.read_state(book)
+        backups_dir = book.backups_dir()
+        backups = []
+        if backups_dir.exists():
+            for path in sorted(backups_dir.glob("*.xlsx"), reverse=True)[:15]:
+                stat = path.stat()
+                backups.append({
+                    "name": path.name,
+                    "size": f"{stat.st_size / 1024:.0f} КБ",
+                    "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M"),
+                })
+        context = {
+            "entry": entry,
+            "book": book,
+            "state": state,
+            "backups": backups,
+            "backup_count": len(list(backups_dir.glob("*.xlsx"))) if backups_dir.exists() else 0,
+            "last_backup": backups[0]["name"] if backups else "",
+            "keep": config.DEFAULT_BACKUP_KEEP,
+            "report": None,
+            "message": "",
+            "message_kind": "info",
+        }
+        context.update(extra)
+        return context
+
+    @app.get("/excel")
+    def excel_page():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        return render_template("excel.html", **_excel_context(book, entry))
+
+    @app.route("/excel/open", methods=["GET", "POST"])
+    def excel_open():
+        """Включить ручной режим: контрольная копия, снимок, блокировка записи."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        result, error = safe(manual_mode.open_for_manual, book)
+        if error:
+            return render_template(
+                "excel.html",
+                **_excel_context(book, entry, message=error["message"], message_kind="error"),
+            )
+        launched = manual_mode.launch_excel(book)
+        return render_template(
+            "excel.html",
+            **_excel_context(
+                book, entry,
+                message=("Ручной режим включён. Запись через приложение заблокирована. "
+                         + launched),
+                message_kind="ok",
+            ),
+        )
+
+    @app.post("/excel/check")
+    def excel_check():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        report, error = safe(manual_mode.check_book, book)
+        if error:
+            return render_template(
+                "excel.html",
+                **_excel_context(book, entry, message=error["message"], message_kind="error"),
+            )
+        return render_template("excel.html", **_excel_context(book, entry, report=report))
+
+    @app.post("/excel/accept")
+    def excel_accept():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        result, error = safe(manual_mode.accept_changes, book,
+                             reason=request.form.get("reason", ""))
+        if error:
+            report, _ = safe(manual_mode.check_book, book)
+            return render_template(
+                "excel.html",
+                **_excel_context(book, entry, report=report,
+                                 message=error["message"], message_kind="error"),
+            )
+        fresh = open_book(book.path, data_dir=book.path.parent)
+        assigned = result.get("assigned", 0)
+        text = "Изменения приняты, снимок обновлён, запись через приложение возобновлена."
+        if assigned:
+            text += f" Новым строкам назначено ID: {assigned}."
+        return render_template(
+            "excel.html",
+            **_excel_context(fresh, entry, message=text, message_kind="ok"),
+        )
+
+    @app.post("/excel/cancel")
+    def excel_cancel():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        restore = bool(request.form.get("restore"))
+        message, error = safe(manual_mode.cancel_manual, book, restore=restore)
+        if error:
+            return render_template(
+                "excel.html",
+                **_excel_context(book, entry, message=error["message"], message_kind="error"),
+            )
+        fresh, open_error = safe(open_book, book.path, data_dir=book.path.parent)
+        target = fresh if fresh else book
+        return render_template(
+            "excel.html",
+            **_excel_context(target, entry, message=message, message_kind="ok"),
+        )
+
+    @app.post("/excel/migrate")
+    def excel_migrate():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        result, error = safe(migrations.migrate, book.path)
+        if error:
+            return render_template(
+                "excel.html",
+                **_excel_context(book, entry, message=error["message"], message_kind="error"),
+            )
+        fresh = open_book(book.path, data_dir=book.path.parent)
+        text = (f"Схема обновлена: {result.from_version} → {result.to_version}. "
+                f"Создан резерв: {Path(result.backup).name if result.backup else '—'}.")
+        return render_template(
+            "excel.html",
+            **_excel_context(fresh, entry, message=text, message_kind="ok"),
+        )
 
     @app.get("/settings")
     def settings_page():
