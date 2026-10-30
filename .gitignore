@@ -1,0 +1,50 @@
+# Служебные и пользовательские данные не хранятся в репозитории
+settings/
+data/
+organizations/
+backups/
+logs/
+output/
+recovery/
+attachments/
+*.xlsx
+*.xlsm
+!resources/examples/*.xlsx
+*.docx
+!resources/forms/*.docx
+*.pdf
+*.log
+*.jsonl
+!.github/**/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+*.spec
+
+# Окружение и секреты
+.env
+.env.*
+*.pem
+*.key
+secrets.*
+!docs/secrets.example
+
+# ОС и редакторы
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+~$*
