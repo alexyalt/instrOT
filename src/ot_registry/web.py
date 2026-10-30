@@ -26,7 +26,7 @@ from flask import (
     url_for,
 )
 
-from . import config, deadlines, manual_mode, migrations, printing, registration, services, validation
+from . import config, deadlines, manual_mode, migrations, printing, registration, reports, services, validation
 from .errors import (
     AppError,
     BookChangedError,
@@ -790,6 +790,39 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         flash("Пакет закрыт." if not error else error["message"],
               "ok" if not error else "error")
         return redirect(url_for("archive"))
+
+    # -- отчёты ------------------------------------------------------------
+    @app.get("/reports")
+    def reports_page():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        summary = _book_summary(book)
+        return render_template(
+            "reports.html",
+            entry=entry,
+            book=book,
+            counts=summary["counts"],
+            incomplete=reports.incomplete_registrations(book),
+            repeat_soon=reports.repeat_due_soon(book, days=30),
+            expiring=reports.instructors_expiring(book, days=30),
+            summary=reports.by_type_summary(book),
+            packs=reports.pack_rows(book),
+            year=config.today().year,
+        )
+
+    @app.get("/reports/pack/<case_id>/<pack_id>")
+    def pack_registry(case_id: str, pack_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        rows = reports.pack_registry(book, case_id=case_id, pack_id=pack_id)
+        return render_template(
+            "pack_registry.html", entry=entry, book=book,
+            rows=rows, case_id=case_id, pack_id=pack_id,
+        )
 
     # -- ручной режим Excel ----------------------------------------------
     def _excel_context(book, entry, **extra):
