@@ -258,6 +258,7 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
                 address=(form.get("address") or "").strip(),
                 director=(form.get("director") or "").strip(),
                 ot_specialist=(form.get("ot_specialist") or "").strip(),
+                with_demo_data=bool(form.get("with_demo_data")),
             )
         except AppError as exc:
             return render_template("org_new.html", form=form, error=exc.message)
@@ -911,6 +912,7 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             "entry": entry,
             "book": book,
             "state": state,
+            "protection_password": book.protection_password,
             "backups": backups,
             "backup_count": len(list(backups_dir.glob("*.xlsx"))) if backups_dir.exists() else 0,
             "last_backup": backups[0]["name"] if backups else "",

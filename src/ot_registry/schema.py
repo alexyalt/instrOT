@@ -1,8 +1,14 @@
-"""Описание листов и колонок книги Excel.
+"""Описание листов, колонок и формул книги Excel.
 
 Схема — единый источник истины для чтения, записи и валидации книги.
 Порядок колонок здесь определяет порядок в файле; менять его можно только
 с миграцией (см. docs/WORKBOOK.md).
+
+Листы делятся на виды:
+- data   — таблицы, которые читает и пишет приложение;
+- org    — служебные параметры организации (ключ-значение);
+- summary — формулы и сводки (приложение не меняет, только создаёт);
+- info    — инструкция для человека.
 """
 
 from __future__ import annotations
@@ -11,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 ColType = Literal["text", "date", "int", "money"]
+SheetKind = Literal["data", "org", "summary", "info"]
 
 
 @dataclass(frozen=True)
@@ -24,12 +31,34 @@ class Column:
 
 
 @dataclass(frozen=True)
+class FormulaColumn:
+    """Колонка с формулой Excel. Приложение её перезаписывает при сохранении.
+
+    Формула получает подстановки: {row} — номер строки, {plan} — буква колонки
+    плановой даты, {status} — буква колонки статуса, {fact} — буква колонки
+    фактической даты.
+    """
+
+    title: str
+    template: str
+    width: int = 16
+    number_format: str = "General"
+    note: str = ""
+
+
+@dataclass(frozen=True)
 class Sheet:
     name: str
-    columns: tuple[Column, ...]
+    columns: tuple[Column, ...] = ()
     key: str | None = None  # колонка-идентификатор строки (UUID)
     note: str = ""
-    editable_in_excel: bool = True
+    kind: SheetKind = "data"
+    formulas: tuple[FormulaColumn, ...] = ()
+    validation: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    @property
+    def is_data(self) -> bool:
+        return self.kind == "data"
 
 
 ORGANIZATION_COLUMNS = (
@@ -41,14 +70,16 @@ WORKERS_COLUMNS = (
     Column("id", "ID", width=38, note="Постоянный идентификатор, не менять"),
     Column("personnel_no", "Табельный", width=12),
     Column("fio", "ФИО", width=34, required=True),
-    Column("birth_date", "Дата рождения", "date", 14),
+    Column("birth_date", "Дата рождения", "date", 14,
+           note="Обязательно: реквизит регистрации (п. 86, 87 Правил № 2464)"),
     Column("position", "Должность", width=26, required=True),
     Column("department", "Подразделение", width=24),
     Column("manager", "Руководитель", width=26),
     Column("hire_date", "Дата приёма", "date", 14),
     Column("dismiss_date", "Дата увольнения", "date", 14),
     Column("status", "Статус", width=12, required=True),
-    Column("period_months", "Периодичность, мес", "int", 16),
+    Column("period_months", "Периодичность, мес", "int", 16,
+           note="6 мес. по умолчанию; больше — только с основанием"),
     Column("note", "Примечание", width=28),
     Column("updated_at", "Изменено", width=20, note="Служебное поле"),
 )
@@ -76,7 +107,7 @@ TRAININGS_COLUMNS = (
            note="Обязательный реквизит (п. 86, 87 Правил № 2464)"),
     Column("type", "Вид", width=14, required=True),
     Column("reason", "Причина", width=26),
-    Column("program", "Программа / инструкции", width=28),
+    Column("program", "ЛНА / программа", width=28),
     Column("plan_date", "Дата плана", "date", 14),
     Column("fact_date", "Дата факта", "date", 14),
     Column("status", "Статус", width=14, required=True),
@@ -92,6 +123,35 @@ TRAININGS_COLUMNS = (
     Column("note", "Примечание", width=26),
     Column("created_at", "Создано", width=20, note="Служебное поле"),
     Column("updated_at", "Изменено", width=20, note="Служебное поле"),
+)
+
+TRAININGS_FORMULAS = (
+    FormulaColumn(
+        "Дней до срока",
+        '=IF(${status}{row}="Запланирован",IF(${plan}{row}="","",${plan}{row}-TODAY()),"")',
+        width=14,
+        number_format="0",
+        note="Считается Excel; приложение считает сроки независимо",
+    ),
+    FormulaColumn(
+        "Состояние",
+        '=IF(${status}{row}<>"Запланирован",${status}{row},'
+        'IF(${plan}{row}="","нет даты",'
+        'IF(${plan}{row}<TODAY(),"ПРОСРОЧЕНО",'
+        'IF(${plan}{row}-TODAY()<=7,"ближайшие",'
+        'IF(${plan}{row}-TODAY()<=14,"скоро","позднее")))))',
+        width=16,
+        note="Текстовая подсказка, дублирует подсветку",
+    ),
+)
+
+WORKERS_FORMULAS = (
+    FormulaColumn(
+        "Инструктажей проведено",
+        '=COUNTIFS(Инструктажи!$C$2:$C$5000,$A{row},Инструктажи!$M$2:$M$5000,"Проведён")',
+        width=16,
+        number_format="0",
+    ),
 )
 
 ARCHIVE_COLUMNS = (
@@ -124,21 +184,39 @@ WORKER_HISTORY_COLUMNS = (
 )
 
 INSTRUCTION_COLUMNS = (
-    Column("line", "Инструкция", width=100),
+    Column("line", "Инструкция", width=110),
+)
+
+SUMMARY_COLUMNS = (
+    Column("label", "Показатель", width=42),
+    Column("value", "Значение", width=18),
+    Column("note", "Пояснение", width=60),
 )
 
 SHEETS: tuple[Sheet, ...] = (
-    Sheet("Организация", ORGANIZATION_COLUMNS, note="Реквизиты и счётчики", editable_in_excel=False),
-    Sheet("Работники", WORKERS_COLUMNS, key="id"),
+    Sheet("Организация", ORGANIZATION_COLUMNS, kind="org",
+          note="Реквизиты и счётчики. Приложение поддерживает значения автоматически"),
+    Sheet("Работники", WORKERS_COLUMNS, key="id", formulas=WORKERS_FORMULAS,
+          validation={"status": ("Работает", "Уволен")}),
     Sheet("Инструктирующие", INSTRUCTORS_COLUMNS, key="id"),
-    Sheet("Инструктажи", TRAININGS_COLUMNS, key="id"),
-    Sheet("Архив", ARCHIVE_COLUMNS, note="Строка — один пакет"),
+    Sheet("Инструктажи", TRAININGS_COLUMNS, key="id", formulas=TRAININGS_FORMULAS,
+          validation={"status": ("Запланирован", "Проведён", "Отменён")}),
+    Sheet("Сводка", SUMMARY_COLUMNS, kind="summary",
+          note="Формулы Excel: считается при открытии книги"),
+    Sheet("Архив", ARCHIVE_COLUMNS, note="Строка — один пакет",
+          validation={"status": ("Открыт", "Закрыт")}),
     Sheet("Справочники", DICTIONARY_COLUMNS),
     Sheet("История_работников", WORKER_HISTORY_COLUMNS, key="id"),
-    Sheet("Инструкция", INSTRUCTION_COLUMNS, editable_in_excel=False),
+    Sheet("Инструкция", INSTRUCTION_COLUMNS, kind="info"),
 )
 
 SHEET_BY_NAME: dict[str, Sheet] = {s.name: s for s in SHEETS}
+DATA_SHEETS: tuple[Sheet, ...] = tuple(s for s in SHEETS if s.is_data)
+READABLE_SHEETS: tuple[Sheet, ...] = tuple(s for s in SHEETS if s.kind in ("data", "org"))
+ORG_SHEET = "Организация"
+SUMMARY_SHEET = "Сводка"
+INSTRUCTION_SHEET = "Инструкция"
+ARCHIVE_SHEET = "Архив"
 
 # Служебные ключи листа «Организация».
 ORG_KEY = {
@@ -172,3 +250,65 @@ DICTIONARY_KINDS = {
     "program": "Программы",
     "note": "Прочее",
 }
+
+# Базовое наполнение справочников при создании книги.
+DEFAULT_DICTIONARIES: tuple[tuple[str, str, str], ...] = (
+    ("reason", "Изменение технологического процесса", ""),
+    ("reason", "Нарушение требований охраны труда", ""),
+    ("reason", "Перерыв в работе более 30 календарных дней", ""),
+    ("reason", "По требованию должностных лиц органов надзора", ""),
+    ("reason", "Изменение условий труда", ""),
+    ("reason", "Перед выполнением разовых работ", ""),
+    ("position", "Дворник", ""),
+    ("position", "Уборщик служебных помещений", ""),
+    ("position", "Озеленитель", ""),
+    ("position", "Садовник", ""),
+    ("position", "Рабочий зелёного хозяйства", ""),
+    ("position", "Мастер участка", ""),
+    ("position", "Начальник участка", ""),
+    ("position", "Специалист по охране труда", ""),
+    ("department", "Администрация", ""),
+    ("department", "Участок благоустройства", ""),
+    ("department", "Участок озеленения", ""),
+    ("department", "Клининговый участок", ""),
+    ("program", "Вводный инструктаж по охране труда", ""),
+    ("program", "Инструкция по охране труда № 1 (дворник)", ""),
+    ("program", "Инструкция по охране труда № 2 (озеленитель)", ""),
+    ("program", "Инструкция по охране труда № 3 (уборщик помещений)", ""),
+    ("program", "Инструкция по охране труда при работе с ручным инструментом", ""),
+)
+
+
+def column_letter(index: int) -> str:
+    """1 → A, 26 → Z, 27 → AA."""
+    result = ""
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def column_letters(sheet: Sheet) -> dict[str, str]:
+    """Соответствие ключ колонки → буква столбца (только для колонок данных)."""
+    return {col.key: column_letter(idx) for idx, col in enumerate(sheet.columns, start=1)}
+
+
+def formula_context(sheet: Sheet) -> dict[str, str]:
+    """Подстановки для формул: буквы ключевых колонок."""
+    letters = column_letters(sheet)
+    return {
+        "plan": letters.get("plan_date", "K"),
+        "status": letters.get("status", "M"),
+        "fact": letters.get("fact_date", "L"),
+        "code": letters.get("code", "B"),
+        "type": letters.get("type", "H"),
+    }
+
+
+def last_letter(sheet: Sheet) -> str:
+    return column_letter(len(sheet.columns))
+
+
+def formula_letter(sheet: Sheet, position: int) -> str:
+    """Буква для формулы с учётом того, что они идут после колонок данных."""
+    return column_letter(len(sheet.columns) + position)

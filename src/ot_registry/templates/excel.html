@@ -23,6 +23,26 @@
           {% endif %}
         </td>
       </tr>
+      <tr>
+        <th>Защита структуры</th>
+        <td>
+          {% if protection_password %}
+            <span class="badge badge-ok">включена</span>
+            <div class="small muted" style="margin-top:4px">
+              Пароль защиты книги (вводится в Excel при снятии защиты листа):
+              <strong class="mono">{{ protection_password }}</strong>
+            </div>
+            <div class="small muted">
+              Защита не даёт изменить названия колонок и добавить строки
+              в обход приложения. Это ограничение от случайных правок,
+              а не средство информационной безопасности.
+            </div>
+          {% else %}
+            <span class="badge">не включена</span>
+            <div class="small muted">Книга создана без защиты структуры.</div>
+          {% endif %}
+        </td>
+      </tr>
       <tr><th>Резервных копий</th><td>{{ backup_count }}</td></tr>
       <tr><th>Последняя копия</th><td class="small">{{ last_backup or 'нет' }}</td></tr>
     </tbody>
