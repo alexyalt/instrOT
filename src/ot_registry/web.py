@@ -796,6 +796,72 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         return redirect(url_for("archive"))
 
     # -- отчёты ------------------------------------------------------------
+    @app.post("/trainings/<training_id>/cancel")
+    def training_cancel(training_id: str):
+        """Отменить запланированный инструктаж с указанием причины."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        reason_text = request.form.get("reason", "").strip()
+        _, error = safe(services.cancel_plan, book, training_id, reason=reason_text)
+        flash(
+            "План отменён." if not error else error["message"],
+            "ok" if not error else "error",
+        )
+        return redirect(url_for("trainings_list"))
+
+    @app.route("/trainings/<training_id>/edit", methods=["GET", "POST"])
+    def training_edit(training_id: str):
+        """Исправить проведённую запись: причина обязательна, номера не меняются."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        row = book.table("Инструктажи").by_key("id", training_id)
+        if row is None:
+            flash("Запись не найдена.", "error")
+            return redirect(url_for("trainings_list"))
+
+        if request.method == "GET":
+            return render_template(
+                "training_edit.html", entry=entry, book=book, row=row,
+                errors={}, message="",
+            )
+
+        form = request.form.to_dict()
+        reason_text = (form.get("change_reason") or "").strip()
+        if not reason_text:
+            return render_template(
+                "training_edit.html", entry=entry, book=book, row=row,
+                errors={"reason": "Укажите основание изменения."},
+                message="Проверьте заполнение формы.",
+            )
+        # Разрешено исправлять описательные поля; номера и вид не меняются.
+        before = {k: str(row.get(k) or "") for k in ("fio", "position", "department", "program", "reason", "note")}
+        for key in ("fio", "position", "department", "program", "reason", "note"):
+            if key in form:
+                row[key] = form.get(key, "").strip()
+        row["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+        after = {k: str(row.get(k) or "") for k in before}
+        changed = {k: {"before": before[k], "after": after[k]} for k in before if before[k] != after[k]}
+        _, error = safe(
+            __import__("ot_registry.excel_store", fromlist=["save_book"]).save_book,
+            book,
+            action="training_edit",
+            entity="Инструктажи",
+            entity_id=training_id,
+            reason=reason_text,
+            details={"changed": changed},
+        )
+        if error:
+            return render_template(
+                "training_edit.html", entry=entry, book=book, row=row,
+                errors={}, message=error["message"],
+            )
+        flash("Запись исправлена, основание сохранено в журнале.", "ok")
+        return redirect(url_for("trainings_list"))
+
     @app.get("/reports")
     def reports_page():
         cat, entry = require_org()

@@ -58,7 +58,21 @@
               {{ row.number_ot }}<div class="muted">{{ row.number_type }} · {{ row.case_id }}-{{ row.pack_id }}</div>
             {% else %}—{% endif %}
           </td>
-          <td class="small">{{ row.instructor_fio or '—' }}</td>
+          <td class="small">{{ row.instructor_fio or '—' }}
+            <div style="margin-top:4px">
+              {% if row.status == 'Запланирован' %}
+                <a class="small" href="{{ url_for('register') }}?code={{ row.code }}">Провести</a>
+                <form method="post" action="{{ url_for('training_cancel', training_id=row.id) }}"
+                      class="inline" onsubmit="return confirm('Отменить план?')">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="reason" value="Отмена плана из списка">
+                  <button type="submit" class="ghost small" style="padding:0;font-size:12px">Отменить</button>
+                </form>
+              {% else %}
+                <a class="small" href="{{ url_for('training_edit', training_id=row.id) }}">Исправить</a>
+              {% endif %}
+            </div>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
