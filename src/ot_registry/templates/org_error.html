@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Ошибка книги — {{ app_title }}{% endblock %}
+{% block content %}
+<h1>Не удалось открыть книгу</h1>
+<div class="panel">
+  <p>{{ error.message }}</p>
+  {% if error.details %}
+    <ul class="errors">{% for d in error.details %}<li>{{ d }}</li>{% endfor %}</ul>
+  {% endif %}
+  <p class="muted small">Организация: {{ entry.name }}</p>
+  <p class="muted small mono" style="word-break:break-all">{{ entry.path }}</p>
+  <div class="actions">
+    <a class="button" href="{{ url_for('index') }}">К списку организаций</a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Инструктирующие — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Инструктирующие и допуски</h1>
+<p class="muted">
+  Один человек может иметь несколько программ — это отдельные строки допусков.
+  Даты действия проверяются при планировании и регистрации.
+</p>
+
+<div class="panel">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>ФИО</th><th>Должность</th><th>Программа / основание</th>
+            <th>Виды</th><th>Действует с</th><th>Действует по</th><th>Состояние</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.fio }}</td>
+          <td class="small">{{ r.position or '—' }}</td>
+          <td class="small">{{ r.program or '—' }}</td>
+          <td class="small">{{ r.types or 'все виды' }}</td>
+          <td class="small">{{ r.valid_from | ru_date or '—' }}</td>
+          <td class="small">{{ r.valid_to | ru_date or 'бессрочно' }}</td>
+          <td>
+            {% if r.valid_to and r.valid_to < today() %}
+              <span class="badge badge-danger">истёк</span>
+            {% elif r.valid_to %}
+              <span class="badge badge-ok">действует</span>
+            {% else %}
+              <span class="badge">без срока</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Допусков нет. Добавьте первого инструктирующего.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Добавить допуск</h2>
+  <form method="post" action="{{ url_for('instructor_new') }}" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="grid grid-2">
+      <div class="field">
+        <label for="fio">ФИО *</label>
+        <input type="text" id="fio" name="fio" required>
+      </div>
+      <div class="field">
+        <label for="position">Должность</label>
+        <input type="text" id="position" name="position" data-suggestions='{{ dicts.position | tojson }}'>
+      </div>
+      <div class="field">
+        <label for="program">Программа / основание</label>
+        <input type="text" id="program" name="program" data-suggestions='{{ dicts.program | tojson }}'>
+      </div>
+      <div class="field">
+        <label>Разрешённые виды</label>
+        {% for t in training_types %}
+          <label class="checkbox-row" style="margin:2px 0">
+            <input type="checkbox" name="types" value="{{ t }}"> <span>{{ t }}</span>
+          </label>
+        {% endfor %}
+        <div class="hint">Если ничего не отмечено, допуск действует для всех видов.</div>
+      </div>
+      <div class="field">
+        <label for="valid_from">Действует с</label>
+        <input type="date" id="valid_from" name="valid_from">
+      </div>
+      <div class="field">
+        <label for="valid_to">Действует по</label>
+        <input type="date" id="valid_to" name="valid_to">
+        <div class="hint">Оставьте пустым, если срок не установлен.</div>
+      </div>
+    </div>
+    <div class="field">
+      <label for="note">Примечание</label>
+      <input type="text" id="note" name="note">
+    </div>
+    <div class="actions"><button type="submit">Добавить</button></div>
+  </form>
+</div>
+{% endblock %}

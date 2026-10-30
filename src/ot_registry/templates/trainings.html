@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Инструктажи — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Инструктажи</h1>
+
+<div class="panel panel-tight">
+  <form method="get" class="row">
+    <div class="field">
+      <label for="q">Поиск по ФИО, виду, коду или номеру</label>
+      <input type="text" id="q" name="q" value="{{ search }}">
+    </div>
+    <div class="field" style="flex:0 0 200px">
+      <label for="status">Статус</label>
+      <select id="status" name="status">
+        <option value="">Все</option>
+        <option value="Запланирован" {% if status == 'Запланирован' %}selected{% endif %}>Запланирован</option>
+        <option value="Проведён" {% if status == 'Проведён' %}selected{% endif %}>Проведён</option>
+        <option value="Отменён" {% if status == 'Отменён' %}selected{% endif %}>Отменён</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <button type="submit">Показать</button>
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <a class="button secondary" href="{{ url_for('training_new') }}">Планировать</a>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <p class="muted small">Найдено записей: {{ rows | length }}</p>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Срок</th><th>Работник</th><th>Вид</th><th>Статус</th><th>План</th><th>Факт</th>
+          <th>Код</th><th>Номера</th><th>Инструктирующий</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row, info in rows %}
+        <tr class="{{ info.css }}">
+          <td class="small">{{ info.text }}</td>
+          <td><a href="{{ url_for('worker_card', worker_id=row.worker_id) }}">{{ row.fio }}</a>
+            <div class="small muted">{{ row.position }}</div></td>
+          <td>{{ row.type }}</td>
+          <td>
+            {% if row.status == 'Проведён' %}<span class="badge badge-ok">Проведён</span>
+            {% elif row.status == 'Отменён' %}<span class="badge">Отменён</span>
+            {% else %}<span class="badge badge-warn">Запланирован</span>{% endif %}
+          </td>
+          <td class="small">{{ row.plan_date | ru_date or '—' }}</td>
+          <td class="small">{{ row.fact_date | ru_date or '—' }}</td>
+          <td class="mono small">{{ row.code | format_code }}</td>
+          <td class="small">
+            {% if row.number_ot %}
+              {{ row.number_ot }}<div class="muted">{{ row.number_type }} · {{ row.case_id }}-{{ row.pack_id }}</div>
+            {% else %}—{% endif %}
+          </td>
+          <td class="small">{{ row.instructor_fio or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Записей нет. Создайте план инструктажа.</p>
+  {% endif %}
+</div>
+{% endblock %}

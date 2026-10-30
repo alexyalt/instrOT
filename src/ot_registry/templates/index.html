@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Организации — {{ app_title }}{% endblock %}
+{% block content %}
+<h1>Организации</h1>
+<p class="muted">
+  Каждая организация — отдельная книга Excel со своими работниками, инструктажами,
+  номерами и резервными копиями. Организации не смешиваются.
+</p>
+
+{% if summaries %}
+<div class="grid grid-3">
+  {% for item in summaries %}
+  <div class="panel">
+    <h3>{{ item.entry.name }}</h3>
+    {% if item.error %}
+      <p class="badge badge-danger">Книга недоступна</p>
+      <p class="muted small">{{ item.error }}</p>
+    {% else %}
+      <div class="row small">
+        <span class="badge badge-danger">Просрочено: {{ item.counts.overdue }}</span>
+        <span class="badge badge-warn">Сегодня: {{ item.counts.today }}</span>
+        <span class="badge">Ближайшие: {{ item.counts.soon }}</span>
+      </div>
+      <p class="muted small" style="margin-top:10px">Запланировано: {{ item.total_planned }}</p>
+    {% endif %}
+    <div class="actions">
+      <form method="post" action="{{ url_for('select_org') }}" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="org_uuid" value="{{ item.entry.uuid }}">
+        <button type="submit">Открыть</button>
+      </form>
+    </div>
+    <p class="muted small mono" style="margin-top:8px; word-break:break-all">{{ item.entry.path }}</p>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel">
+  <h3>Пока нет ни одной организации</h3>
+  <p>Создайте новую книгу или подключите уже существующий файл Excel.</p>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h3>Добавить организацию</h3>
+  <div class="actions">
+    <a class="button" href="{{ url_for('new_org') }}">Создать новую книгу</a>
+    <a class="button secondary" href="{{ url_for('connect_org') }}">Подключить существующую</a>
+  </div>
+  <div class="help" style="margin-top:14px">
+    Если книгу ведёт другой специалист, подключите её копию, а не общий файл в сетевой папке:
+    одновременно редактировать одну книгу с двух компьютеров приложение не поддерживает.
+  </div>
+</div>
+{% endblock %}

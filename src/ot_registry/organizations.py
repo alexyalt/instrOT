@@ -154,8 +154,12 @@ class Catalog:
         return iter(self.entries)
 
 
-def prepare_org_dir(name: str, *, base_dir: Path | None = None) -> tuple[Path, Path]:
-    """Создать каталог организации и вернуть (папка, путь книги)."""
+def prepare_org_dir(*, base_dir: Path | None = None) -> tuple[Path, Path]:
+    """Создать каталог организации и вернуть (папка, путь книги).
+
+    Имя каталога — случайный идентификатор, а не название организации:
+    переименование или недопустимые символы в названии не влияют на путь.
+    """
     base = base_dir or config.organizations_dir()
     slug = uuid.uuid4().hex
     folder = base / slug

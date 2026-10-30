@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Внести бумажный бланк — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Внести бумажный бланк</h1>
+<p class="muted">
+  Для документов, заполненных и подписанных вручную вне системы — при отсутствии
+  компьютера, электричества или доступа к книге. Основание — сам оригинал с подписями.
+</p>
+
+{% if message %}<div class="flash flash-error">{{ message }}
+  {% if details %}<ul class="errors">{% for d in details %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+</div>{% endif %}
+
+<div class="help" style="margin-bottom:16px">
+  Код <span class="mono">{{ manual_code }}</span> на бланке означает только ручной режим и
+  одинаков для всех таких бланков — он не различает документы. Чтобы не внести один
+  документ дважды, проверяйте совпадения ниже и вписывайте выданный системный номер
+  в поля оригинала.
+</div>
+
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+  <h3>Что написано на бланке</h3>
+  <div class="grid grid-2">
+    <div class="field {% if errors.worker_id %}field-error{% endif %}">
+      <label for="worker_id">Работник</label>
+      <select id="worker_id" name="worker_id">
+        <option value="">— выбрать из списка —</option>
+        {% for w in workers %}
+        <option value="{{ w.id }}" {% if form.worker_id == w.id %}selected{% endif %}>
+          {{ w.fio }} — {{ w.position }}
+        </option>
+        {% endfor %}
+      </select>
+      {% if errors.worker_id %}<div class="error-text">{{ errors.worker_id }}</div>{% endif %}
+      <div class="hint">Если работника ещё нет в книге, заполните поля ниже.</div>
+    </div>
+
+    <div class="field {% if errors.type %}field-error{% endif %}">
+      <label for="type">Вид инструктажа *</label>
+      <select id="type" name="type" required>
+        <option value="">— выберите —</option>
+        {% for t in training_types %}
+        <option value="{{ t }}" {% if form.type == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      {% if errors.type %}<div class="error-text">{{ errors.type }}</div>{% endif %}
+    </div>
+
+    <div class="field {% if errors.fact_date %}field-error{% endif %}">
+      <label for="fact_date">Фактическая дата с бланка *</label>
+      <input type="date" id="fact_date" name="fact_date" required
+             value="{{ form.fact_date or '' }}">
+      {% if errors.fact_date %}<div class="error-text">{{ errors.fact_date }}</div>{% endif %}
+    </div>
+
+    <div class="field {% if errors.instructor_id %}field-error{% endif %}">
+      <label for="instructor_id">Инструктирующий *</label>
+      <select id="instructor_id" name="instructor_id" required>
+        <option value="">— выберите —</option>
+        {% for i in instructors %}
+        <option value="{{ i.id }}" {% if form.instructor_id == i.id %}selected{% endif %}>{{ i.fio }}</option>
+        {% endfor %}
+      </select>
+      {% if errors.instructor_id %}<div class="error-text">{{ errors.instructor_id }}</div>{% endif %}
+    </div>
+
+    <div class="field {% if errors.program %}field-error{% endif %}">
+      <label for="program">Программа / инструкции</label>
+      <input type="text" id="program" name="program" value="{{ form.program or '' }}"
+             data-suggestions='{{ dicts.program | tojson }}'>
+      {% if errors.program %}<div class="error-text">{{ errors.program }}</div>{% endif %}
+    </div>
+
+    <div class="field {% if errors.reason %}field-error{% endif %}">
+      <label for="reason">Причина</label>
+      <input type="text" id="reason" name="reason" value="{{ form.reason or '' }}"
+             data-suggestions='{{ dicts.reason | tojson }}'>
+      {% if errors.reason %}<div class="error-text">{{ errors.reason }}</div>{% endif %}
+    </div>
+
+    <div class="field">
+      <label for="manual_mark">Отметка или номер листа на бланке</label>
+      <input type="text" id="manual_mark" name="manual_mark" value="{{ form.manual_mark or '' }}"
+             placeholder="например: 30.10.2026 / 3">
+      <div class="hint">Необязательная вспомогательная отметка, помогает найти оригинал.</div>
+    </div>
+
+    <div class="field">
+      <label for="note">Примечание</label>
+      <input type="text" id="note" name="note" value="{{ form.note or '' }}"
+             placeholder="где хранится оригинал, особенности">
+    </div>
+  </div>
+
+  <h3>Если работника нет в книге</h3>
+  <div class="grid grid-3">
+    <div class="field">
+      <label for="new_worker_fio">ФИО</label>
+      <input type="text" id="new_worker_fio" name="new_worker_fio" value="{{ form.new_worker_fio or '' }}">
+    </div>
+    <div class="field">
+      <label for="new_worker_position">Должность</label>
+      <input type="text" id="new_worker_position" name="new_worker_position"
+             value="{{ form.new_worker_position or '' }}" data-suggestions='{{ dicts.position | tojson }}'>
+    </div>
+    <div class="field">
+      <label for="new_worker_department">Подразделение</label>
+      <input type="text" id="new_worker_department" name="new_worker_department"
+             value="{{ form.new_worker_department or '' }}" data-suggestions='{{ dicts.department | tojson }}'>
+    </div>
+  </div>
+  <div class="hint">
+    Не придумывайте кадровые данные, которых нет на бланке. Дату приёма и табельный
+    можно дополнить позже в карточке работника.
+  </div>
+
+  {% if plans %}
+  <h3>Похожие планы</h3>
+  <p class="small">
+    Если этот бланк относится к одному из запланированных инструктажей, выберите его —
+    план будет завершён, а не создастся вторая запись.
+  </p>
+  <div class="field">
+    <label for="plan_id">Связать с планом</label>
+    <select id="plan_id" name="plan_id">
+      <option value="">Не связывать, создать отдельную проведённую запись</option>
+      {% for p in plans %}
+      <option value="{{ p.id }}" {% if form.plan_id == p.id %}selected{% endif %}>
+        {{ p.type }} — план {{ p.plan_date | ru_date }} — код {{ p.code | format_code }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  {% else %}
+    <div class="hint" style="margin-top:12px">
+      Выберите работника и вид, чтобы увидеть подходящие планы.
+    </div>
+  {% endif %}
+
+  <div class="checkbox-row {% if errors.paper_confirmed %}field-error{% endif %}">
+    <input type="checkbox" id="paper_confirmed" name="paper_confirmed" required
+           {% if form.paper_confirmed %}checked{% endif %}>
+    <label for="paper_confirmed">
+      Оригинал заполнен и подписан собственноручно, находится на руках. *
+    </label>
+  </div>
+  {% if errors.paper_confirmed %}<div class="error-text">{{ errors.paper_confirmed }}</div>{% endif %}
+
+  <div class="checkbox-row">
+    <input type="checkbox" id="allow_similar" name="allow_similar" {% if form.allow_similar %}checked{% endif %}>
+    <label for="allow_similar">
+      Подтверждаю, что инструктаж в этот день действительно был повторно у того же работника
+      (совпадение по работнику, виду и дате — не ошибка).
+    </label>
+  </div>
+
+  <div class="actions">
+    <button type="submit">Внести в книгу</button>
+    <a class="button secondary" href="{{ url_for('dashboard') }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}

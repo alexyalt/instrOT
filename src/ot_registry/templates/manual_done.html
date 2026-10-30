@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Бумажный бланк внесён{% endblock %}
+{% block content %}
+<h1>Бумажный бланк внесён</h1>
+
+<div class="flash flash-ok">Запись добавлена в книгу организации «{{ entry.name }}».</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">{{ training.fio }}</h2>
+  <p class="muted small">{{ training.type }} · факт {{ training.fact_date | ru_date }} ·
+     внесено {{ training.reg_date | ru_date }} · источник: {{ training.source }}</p>
+
+  <h3>Впишите номера в оригинал</h3>
+  <table class="data">
+    <tbody>
+      <tr><th style="width:40%">Сквозной номер</th><td class="number-print">{{ training.number_ot }}</td></tr>
+      <tr><th>Номер по виду</th><td class="number-print">{{ training.number_type }}</td></tr>
+      <tr><th>Дело / пакет</th><td class="number-print">{{ training.case_id }} / {{ training.pack_id }}</td></tr>
+      <tr><th>Код бланка</th><td class="mono">{{ training.code | format_code }} (ручной режим)</td></tr>
+      <tr><th>Куда подшить</th><td>{{ training.case_id }}, пакет {{ training.pack_id }}</td></tr>
+    </tbody>
+  </table>
+  <p class="muted small">
+    Общий код 000-000 не различает документы. Чтобы исключить повторное внесение,
+    обязательно впишите выданные номера на оригинал.
+  </p>
+</div>
+
+{% if training.note %}
+<div class="panel"><strong>Примечание:</strong> {{ training.note }}</div>
+{% endif %}
+
+{% if next_plan %}
+<div class="panel">
+  <h3 style="margin-top:0">Следующий повторный инструктаж</h3>
+  <p>Плановая дата: <strong>{{ next_plan.plan_date | ru_date }}</strong>,
+     код <span class="mono">{{ next_plan.code | format_code }}</span>.</p>
+</div>
+{% endif %}
+
+<div class="actions">
+  <a class="button" href="{{ url_for('manual_entry') }}">Внести ещё</a>
+  <a class="button secondary" href="{{ url_for('dashboard') }}">К срокам</a>
+</div>
+{% endblock %}
