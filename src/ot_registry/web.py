@@ -169,6 +169,10 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
     def _require_start_token():
         if app.config.get("TESTING"):
             return None
+        # Проверка доступности нужна ярлыку до авторизации: она не раскрывает
+        # данных и используется, чтобы не запускать второй экземпляр.
+        if request.path in ("/healthz", "/favicon.ico"):
+            return None
         if session.get("authorized"):
             return None
         supplied = request.args.get(START_TOKEN_PARAM, "")
