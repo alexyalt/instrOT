@@ -99,13 +99,36 @@ def validate_worker(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Обязательные реквизиты регистрации инструктажа — пп. 86, 87 Правил № 2464.
+# Наименование локального акта (ЛНА), в объёме которого проведён инструктаж,
+# обязательно для всех видов; причина — только для внепланового и целевого.
+# Дата рождения работника обязательна для всех видов и проверяется отдельно
+# по данным работника.
 REQUIRED_BY_TYPE: dict[str, tuple[str, ...]] = {
     "Вводный": ("program",),
     "Первичный": ("program",),
     "Повторный": ("program",),
-    "Внеплановый": ("reason",),
-    "Целевой": ("reason",),
+    "Внеплановый": ("program", "reason"),
+    "Целевой": ("program", "reason"),
 }
+
+TYPE_LABEL = {
+    "program": "наименование локального акта (ЛНА), в объёме которого проведён инструктаж",
+    "reason": "причина проведения инструктажа",
+}
+
+
+def require_birth_date(worker: dict[str, Any] | None) -> None:
+    """Дата рождения — обязательный реквизит регистрации инструктажа (п. 86, 87)."""
+    if not worker or not worker.get("birth_date"):
+        raise ValidationError(
+            "У работника не указана дата рождения. Это обязательный реквизит регистрации "
+            "инструктажа (пп. 86, 87 Правил № 2464). Дополните карточку работника и повторите.",
+            fields={
+                "worker_id": "В карточке работника отсутствует дата рождения — "
+                             "без неё регистрация инструктажа неполна."
+            },
+        )
 
 
 def validate_plan(data: dict[str, Any]) -> dict[str, Any]:
@@ -126,8 +149,8 @@ def validate_plan(data: dict[str, Any]) -> dict[str, Any]:
     else:
         for field in REQUIRED_BY_TYPE.get(training_type, ()):
             if not str(data.get(field) or "").strip():
-                label = "Причина" if field == "reason" else "Программа / инструкции"
-                errors[field] = f"Для вида «{training_type}» укажите: {label.lower()}."
+                label = TYPE_LABEL[field]
+                errors[field] = f"Для вида «{training_type}» укажите: {label}."
 
     if errors:
         raise ValidationError("Проверьте заполнение формы.", fields=errors)
@@ -188,8 +211,8 @@ def validate_manual_entry(data: dict[str, Any], *, today: date | None = None) ->
     else:
         for field in REQUIRED_BY_TYPE.get(training_type, ()):
             if not str(data.get(field) or "").strip():
-                label = "Причина" if field == "reason" else "Программа / инструкции"
-                errors[field] = f"Для вида «{training_type}» укажите: {label.lower()}."
+                label = TYPE_LABEL[field]
+                errors[field] = f"Для вида «{training_type}» укажите: {label}."
 
     if errors:
         raise ValidationError("Проверьте заполнение формы.", fields=errors)

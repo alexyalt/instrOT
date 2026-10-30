@@ -60,6 +60,7 @@ def _worker_snapshot(book: Book, worker_id: str) -> dict[str, str]:
         "fio": str(worker.get("fio") or ""),
         "position": str(worker.get("position") or ""),
         "department": str(worker.get("department") or ""),
+        "birth_date": worker.get("birth_date"),
     }
 
 
@@ -95,6 +96,10 @@ def register_training(book: Book, training_id: str, data: dict[str, Any]) -> dic
 
     clean = validation.validate_registration(data)
     training_type = str(row.get("type") or "")
+    validation.require_birth_date(worker_by_id(book, str(row.get("worker_id") or "")))
+    if not row.get("birth_date"):
+        worker_row = worker_by_id(book, str(row.get("worker_id") or "")) or {}
+        row["birth_date"] = worker_row.get("birth_date")
     trainer = _check_instructor(
         book, clean["instructor_id"], on=clean["fact_date"], training_type=training_type
     )
@@ -210,6 +215,7 @@ def register_manual(book: Book, data: dict[str, Any], *,
         worker_id = str(created["id"])
 
     snapshot = _worker_snapshot(book, worker_id)
+    validation.require_birth_date(worker_by_id(book, worker_id))
     similar = _similar_trainings(
         book, worker_id=worker_id, training_type=training_type, fact_date=fact_date
     )
@@ -249,6 +255,7 @@ def register_manual(book: Book, data: dict[str, Any], *,
                 "type": training_type,
                 "reason": clean["reason"],
                 "program": clean["program"],
+                "birth_date": snapshot["birth_date"],
                 "plan_date": None,
                 "created_at": now,
             }

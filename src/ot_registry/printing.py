@@ -133,9 +133,11 @@ def _card_filled(doc: Document, org: dict[str, str], row: dict[str, Any]) -> Non
     _add_row(table, "Работник (ФИО)", str(row.get("fio") or ""))
     _add_row(table, "Должность", str(row.get("position") or ""))
     _add_row(table, "Подразделение", str(row.get("department") or ""))
+    birth = row.get("birth_date")
+    _add_row(table, "Дата рождения", birth.strftime("%d.%m.%Y") if isinstance(birth, date) else "")
     _add_row(table, "Вид инструктажа", str(row.get("type") or ""))
     if row.get("program"):
-        _add_row(table, "Программа / инструкции", str(row.get("program") or ""))
+        _add_row(table, "ЛНА / программа", str(row.get("program") or ""))
     if row.get("reason"):
         _add_row(table, "Причина", str(row.get("reason") or ""))
     _add_row(table, "Плановая дата", plan_text)
@@ -164,8 +166,9 @@ def _card_blank(doc: Document, org: dict[str, str], training_type: str) -> None:
     _add_row(table, "Работник (ФИО)", "")
     _add_row(table, "Должность", "")
     _add_row(table, "Подразделение", "")
+    _add_row(table, "Дата рождения", "____ . ____ . ________")
     _add_row(table, "Вид инструктажа", training_type)
-    _add_row(table, "Программа / инструкции", "")
+    _add_row(table, "ЛНА / программа", "")
     _add_row(table, "Причина", "")
     _add_row(table, "Дата проведения", "____ . ____ . 20____")
     _add_row(table, "Инструктирующий", "")

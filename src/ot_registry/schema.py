@@ -72,6 +72,8 @@ TRAININGS_COLUMNS = (
     Column("fio", "ФИО", width=30, note="Снимок на момент инструктажа"),
     Column("position", "Должность", width=24, note="Снимок"),
     Column("department", "Подразделение", width=22, note="Снимок"),
+    Column("birth_date", "Дата рождения", "date", 14,
+           note="Обязательный реквизит (п. 86, 87 Правил № 2464)"),
     Column("type", "Вид", width=14, required=True),
     Column("reason", "Причина", width=26),
     Column("program", "Программа / инструкции", width=28),

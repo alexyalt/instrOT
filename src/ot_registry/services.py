@@ -264,6 +264,12 @@ def plan_training(book: Book, data: dict[str, Any], *, repeat_from: dict[str, An
         raise NotFoundError("Работник не найден.", details=["Обновите страницу и выберите работника заново."])
     if (worker.get("status") or "Работает") != "Работает":
         raise ValidationError("Нельзя планировать инструктаж уволенному работнику.")
+    if not worker.get("birth_date"):
+        raise ValidationError(
+            "В карточке работника не указана дата рождения. Это обязательный реквизит "
+            "регистрации инструктажа (пп. 86, 87 Правил № 2464).",
+            fields={"worker_id": "Дополните дату рождения в карточке работника."},
+        )
 
     trainer = instructor_by_id(book, clean["instructor_id"])
     if trainer is None:
@@ -301,6 +307,7 @@ def plan_training(book: Book, data: dict[str, Any], *, repeat_from: dict[str, An
             "fio": str(worker.get("fio") or ""),
             "position": str(worker.get("position") or ""),
             "department": str(worker.get("department") or ""),
+            "birth_date": worker.get("birth_date"),
             "type": clean["type"],
             "reason": clean["reason"],
             "program": clean["program"],
