@@ -52,6 +52,22 @@
           </tbody>
         </table>
       </div>
+      <div class="field" style="max-width:280px">
+        <label for="per_page_filled">Карточек на лист A4</label>
+        <select id="per_page_filled" name="per_page">
+          <option value="1">1 — крупно, максимум места для подписей</option>
+          <option value="2" selected>2 — экономия бумаги</option>
+          <option value="3">3 — компактно</option>
+          <option value="4">4 — мелко, с сокращённым набором полей</option>
+          <option value="5">5 — очень плотно, обязательно проверьте на принтере</option>
+        </select>
+        <div class="hint">
+          4–5 карточек используют сокращённый набор полей (должность
+          и подразделение в одной строке). Обязательные реквизиты остаются,
+          но места для подписей меньше: <strong>проверьте первую распечатку</strong>.
+          Для документов, которые заполняются от руки, лучше 1–2 карточки на лист.
+        </div>
+      </div>
       <div class="actions"><button type="submit">Печать выбранных</button></div>
     </form>
     {% else %}
@@ -78,6 +94,18 @@
       <div class="field">
         <label for="count">Количество бланков</label>
         <input type="number" id="count" name="count" value="5" min="1" max="50">
+      </div>
+      <div class="field">
+        <label for="per_page_blank">Карточек на лист A4</label>
+        <select id="per_page_blank" name="per_page">
+          <option value="1" selected>1 — удобнее всего заполнять от руки</option>
+          <option value="2">2 — компромисс</option>
+          <option value="3">3 — экономия бумаги</option>
+        </select>
+        <div class="hint">
+          Для ручного заполнения лучше 1 карточка на лист: больше места
+          для почерка, даты и подписей.
+        </div>
       </div>
       <div class="actions"><button type="submit">Печать пустых бланков</button></div>
     </form>

@@ -170,14 +170,38 @@ def open_for_manual(book: Book) -> dict[str, str]:
     check_copy = folder / CHECK_COPY
     shutil.copy2(book.path, check_copy)
 
+    # Снимаем защиту структуры: иначе пользователь не сможет ни изменить
+    # значения, ни добавить строки. Пароль сохраняется в книге, поэтому
+    # после проверки защита вернётся автоматически.
+    from . import template as tpl
+
+    unprotected = False
+    try:
+        tpl.unprotect_file(book.path)
+        book.fingerprint = fingerprint(book.path)
+        unprotected = True
+    except Exception:
+        unprotected = False
+
     snapshot = _serialize(book)
     snapshot["check_copy_fingerprint"] = fingerprint(check_copy)
     _snapshot_path(book).write_text(
         json.dumps(snapshot, ensure_ascii=False, indent=1), encoding="utf-8"
     )
-    _write_state(book, ManualState(active=True, opened_at=datetime.now().isoformat(timespec="seconds"),
-                                   check_copy=str(check_copy)))
-    return {"copy": str(check_copy), "path": str(book.path)}
+    _write_state(
+        book,
+        ManualState(
+            active=True,
+            opened_at=datetime.now().isoformat(timespec="seconds"),
+            check_copy=str(check_copy),
+            note="" if unprotected else "не удалось снять защиту книги",
+        ),
+    )
+    return {
+        "copy": str(check_copy),
+        "path": str(book.path),
+        "unprotected": "да" if unprotected else "нет",
+    }
 
 
 def launch_excel(book: Book) -> str:
@@ -415,6 +439,13 @@ def accept_changes(book: Book, *, reason: str = "") -> dict[str, Any]:
     # Если запись не удастся, блокировка возвращается — книга останется
     # в состоянии «требуется проверка».
     previous_state = read_state(fresh)
+    # Защита возвращается при сохранении: save_book пересобирает книгу
+    # по шаблону и ставит защиту, если у книги есть пароль.
+    fresh.protection_password = fresh.protection_password or previous_state.note and ""
+    if not fresh.protection_password:
+        from .excel_store import _read_protection_password
+
+        fresh.protection_password = _read_protection_password(fresh.wb)
     _write_state(fresh, ManualState(active=False))
     try:
         save_book(
@@ -424,6 +455,7 @@ def accept_changes(book: Book, *, reason: str = "") -> dict[str, Any]:
             reason=reason or "Принятие ручных правок",
             details={"assigned_ids": assigned},
             make_backup=True,
+            protect=bool(fresh.protection_password),
         )
     except Exception:
         _write_state(fresh, previous_state)
@@ -453,5 +485,14 @@ def cancel_manual(book: Book, *, restore: bool = False) -> str:
         shutil.copy2(book.path, backup_dir / f"before_restore_{stamp}.xlsx")
         shutil.copy2(copy_path, book.path)
         message = "Книга восстановлена из контрольной копии, сделанной перед ручным режимом."
+    else:
+        # Без восстановления возвращаем защиту структуры на текущий файл.
+        if book.protection_password:
+            from . import template as tpl
+
+            try:
+                tpl.protect_file(book.path, book.protection_password)
+            except Exception:
+                pass
     _write_state(book, ManualState(active=False))
     return message

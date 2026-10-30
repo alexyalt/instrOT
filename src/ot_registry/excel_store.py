@@ -28,10 +28,17 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from . import config
+from . import config, template
 from .errors import BookChangedError, BookLockedError, ConfigError, ValidationError
 from .locking import FileLock
-from .schema import ORG_KEY, SHEETS, Column, Sheet
+from .schema import (
+    DEFAULT_DICTIONARIES,
+    ORG_KEY,
+    ORG_SHEET,
+    SHEETS,
+    Column,
+    Sheet,
+)
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
 HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
@@ -40,18 +47,36 @@ THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 DATE_FORMAT = "DD.MM.YYYY"
 
-INSTRUCTION_LINES = (
-    "Как работать с книгой",
-    "",
-    "1. Обычная работа — через приложение. Не открывайте файл в Excel одновременно с ним.",
-    "2. Чтобы править вручную: выберите «Открыть Excel», после закрытия — «Проверить и перечитать».",
-    "3. Колонку ID не удаляйте и не меняйте: по ней приложение узнаёт записи.",
-    "4. Даты вводите как ДД.ММ.ГГГГ. Статусы выбирайте из существующих значений.",
-    "5. Новые строки добавляйте в конец таблицы, не разрывая её.",
-    "6. Код 000000 означает бумажный бланк, заполненный вручную вне системы.",
-    "7. Не изменяйте выданные номера (ОТ, по виду, дело, пакет) без необходимости.",
-    "8. Резервные копии создаются автоматически перед каждой записью приложения.",
-)
+LOCK_PROP = "OTR_LOCK"
+
+
+def _read_protection_password(wb) -> str:
+    """Пароль защиты структуры хранится в свойствах книги.
+
+    Он нужен приложению, чтобы снять защиту на время ручного редактирования
+    и вернуть её после. Это не секрет от пользователя компьютера: пароль
+    показывает интерфейс в разделе «Excel и резерв».
+    """
+    try:
+        for prop in wb.custom_doc_props:
+            if prop.name == LOCK_PROP:
+                return str(prop.value or "")
+    except Exception:
+        return ""
+    return ""
+
+
+def _write_protection_password(wb, password: str) -> None:
+    try:
+        from openpyxl.packaging.custom import StringProperty
+
+        for prop in list(wb.custom_doc_props):
+            if prop.name == LOCK_PROP:
+                wb.custom_doc_props.remove(prop)
+        if password:
+            wb.custom_doc_props.append(StringProperty(name=LOCK_PROP, value=password))
+    except Exception:
+        pass
 
 
 def new_id() -> str:
@@ -151,6 +176,7 @@ class Book:
     tables: dict[str, Table]
     fingerprint: str
     data_dir: Path
+    protection_password: str = ""
 
     @property
     def org_uuid(self) -> str:
@@ -248,29 +274,24 @@ def create_book(
     address: str = "",
     director: str = "",
     ot_specialist: str = "",
+    with_demo_data: bool = False,
 ) -> Book:
-    """Создать новую книгу организации по текущей схеме."""
+    """Создать новую книгу организации по текущей схеме.
+
+    Структура книги, формулы, выпадающие списки и защита строятся в
+    `template.py`: новая организация получает одинаковый шаблон без ручной
+    работы и без опечаток в названиях колонок.
+    """
     path = Path(path)
     if path.exists():
         raise ConfigError(f"Файл уже существует: {path.name}")
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    password = template.generate_password()
     wb = Workbook()
     wb.remove(wb.active)
-
     for sheet in SHEETS:
-        ws = wb.create_sheet(sheet.name)
-        for idx, col in enumerate(sheet.columns, start=1):
-            ws.cell(row=1, column=idx, value=col.title)
-        _style_header(ws, sheet.columns)
-        if sheet.name == "Инструктажи":
-            _add_training_highlighting(ws, sheet)
-        if sheet.name == "Инструкция":
-            ws.column_dimensions["A"].width = 110
-            for r, line in enumerate(INSTRUCTION_LINES, start=2):
-                cell = ws.cell(row=r, column=1, value=line)
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-                cell.font = Font(size=10, bold=(r == 2))
+        wb.create_sheet(sheet.name)
 
     book = Book(
         path=path,
@@ -279,6 +300,7 @@ def create_book(
         tables={s.name: Table(s, []) for s in SHEETS},
         fingerprint="",
         data_dir=data_dir,
+        protection_password=password,
     )
 
     now = datetime.now().astimezone()
@@ -307,10 +329,20 @@ def create_book(
     for key, value in org_values.items():
         book.set_org_value(key, value)
 
+    # Базовое наполнение справочников: должности, подразделения, программы.
+    for kind, value, note in DEFAULT_DICTIONARIES:
+        book.tables["Справочники"].add({"kind": kind, "value": value, "note": note})
+
+    if with_demo_data:
+        from .demo_data import fill_demo_data
+
+        fill_demo_data(book)
+
     save_book(
         book,
         action="create_book",
-        reason="Создание книги организации",
+        reason="Создание книги организации"
+               + (" с демонстрационными данными" if with_demo_data else ""),
         make_backup=False,
         initial=True,
     )
@@ -342,6 +374,11 @@ def open_book(path: Path, *, data_dir: Path) -> Book:
 
     tables: dict[str, Table] = {}
     for sheet in SHEETS:
+        # Служебные и информационные листы не являются таблицами данных:
+        # на «Инструкции» текст в колонке A, на «Сводке» — формулы.
+        if sheet.kind != "data":
+            tables[sheet.name] = Table(sheet, [])
+            continue
         ws = wb[sheet.name]
         title_to_col = {col.title: col for col in sheet.columns}
         header: dict[int, Column] = {}
@@ -385,6 +422,7 @@ def open_book(path: Path, *, data_dir: Path) -> Book:
         tables=tables,
         fingerprint=fingerprint(path),
         data_dir=data_dir,
+        protection_password=_read_protection_password(wb),
     )
 
 
@@ -490,6 +528,32 @@ def rotate_backups(backups: Path, keep: int | None = None) -> None:
             pass
 
 
+def _build_workbook(book: Book, *, protect: bool) -> Workbook:
+    """Собрать книгу заново по шаблону: листы, формулы, проверки, значения.
+
+    Книга всегда строится из схемы, поэтому оформуление, формулы и защита
+    не расходятся со структурой даже после обновления приложения.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)
+    for sheet in SHEETS:
+        wb.create_sheet(sheet.name)
+
+    for name, table in book.tables.items():
+        if name == ORG_SHEET:
+            continue
+        _write_table(wb[name], table)
+
+    template.apply_features(
+        wb,
+        password=book.protection_password if protect else None,
+        org=book.org,
+    )
+    if protect and book.protection_password:
+        _write_protection_password(wb, book.protection_password)
+    return wb
+
+
 def save_book(
     book: Book,
     *,
@@ -500,16 +564,21 @@ def save_book(
     expected_fingerprint: str | None = None,
     make_backup: bool = True,
     initial: bool = False,
+    protect: bool | None = None,
     details: dict[str, Any] | None = None,
 ) -> None:
     """Сохранить книгу: резерв → временный файл → проверка → замена.
 
     `expected_fingerprint` — отпечаток на момент чтения. Если файл изменился
     (ручная правка в Excel, другой процесс), запись отменяется.
+
+    `protect` — защищать ли структуру после записи. По умолчанию защищается,
+    если у книги есть пароль. Во время ручного режима защита снимается.
     """
     path = book.path
     lock_path = path.with_suffix(".lock")
     expected = book.fingerprint if expected_fingerprint is None else expected_fingerprint
+    should_protect = bool(book.protection_password) if protect is None else protect
 
     with FileLock(lock_path):
         # Пока книга проверяется после ручного редактирования, приложение
@@ -538,12 +607,6 @@ def save_book(
         book.set_org_value("schema_version", config.SCHEMA_VERSION)
         book.set_org_value("updated_at", datetime.now().date())
 
-        _write_org(book.wb["Организация"], book.org)
-        for name, table in book.tables.items():
-            if name == "Организация":
-                continue
-            _write_table(book.wb[name], table)
-
         backup_path: Path | None = None
         if make_backup:
             backup_path = _make_backup(book)
@@ -554,7 +617,9 @@ def save_book(
         os.close(fd)
         tmp_path = Path(tmp_name)
         try:
-            book.wb.save(tmp_path)
+            wb = _build_workbook(book, protect=should_protect)
+            wb.save(tmp_path)
+            wb.close()
             _validate_saved(tmp_path)
             if not initial and expected:
                 current = fingerprint(path) if path.exists() else ""
@@ -570,7 +635,13 @@ def save_book(
                 shutil.copy2(backup_path, path)
             raise
 
-        book.fingerprint = fingerprint(path)
+        # Перечитываем книгу, чтобы дальнейшая работа шла с актуальной моделью.
+        refreshed = open_book(path, data_dir=book.data_dir)
+        book.wb = refreshed.wb
+        book.tables = refreshed.tables
+        book.org = refreshed.org
+        book.fingerprint = refreshed.fingerprint
+        book.protection_password = refreshed.protection_password or book.protection_password
 
     from .journal import log_event
 
