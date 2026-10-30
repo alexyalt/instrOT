@@ -104,7 +104,7 @@ def due_info(
     if status == "Отменён":
         return DueInfo(DueLevel.DONE, None, "Отменён", plan_date)
     if plan_date is None:
-        return DueInfo(DueLevel.NONE, None, "Дата не задана", None)
+        return DueInfo(DueLevel.NONE, None, "Нужно уточнить: дата не задана", None)
 
     delta = (plan_date - today).days
     if delta < 0:

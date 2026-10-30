@@ -219,20 +219,34 @@ class TestPlanning:
             )
 
     def test_codes_are_unique_across_plans(self, book, worker, instructor):
+        from datetime import timedelta
+
         codes = set()
-        for _ in range(5):
+        for offset in range(5):
             row = services.plan_training(
                 book,
                 {
                     "worker_id": worker["id"],
                     "instructor_id": instructor["id"],
-                    "plan_date": date.today(),
+                    "plan_date": date.today() + timedelta(days=offset),
                     "type": "Вводный",
                     "program": "ЛНА-1",
                 },
             )
             codes.add(row["code"])
         assert len(codes) == 5
+
+    def test_identical_plan_requires_confirmation(self, book, worker, instructor):
+        payload = {
+            "worker_id": worker["id"],
+            "instructor_id": instructor["id"],
+            "plan_date": date.today(),
+            "type": "Вводный",
+            "program": "ЛНА-1",
+        }
+        services.plan_training(book, payload)
+        with pytest.raises(ConflictError):
+            services.plan_training(book, payload)
 
 
 # --------------------------------------------------------------------------- #
@@ -354,12 +368,15 @@ class TestManualPaper:
         assert row["number_ot"].startswith("ОТ")
 
     def test_manual_entry_links_to_existing_plan(self, book, worker, instructor):
+        from datetime import timedelta
+
+        plan_date = date.today() + timedelta(days=3)
         plan = services.plan_training(
             book,
             {
                 "worker_id": worker["id"],
                 "instructor_id": instructor["id"],
-                "plan_date": date(2026, 10, 1),
+                "plan_date": plan_date,
                 "type": "Повторный",
                 "program": "ЛНА-1",
             },
@@ -371,17 +388,20 @@ class TestManualPaper:
                 "worker_id": worker["id"],
                 "type": "Повторный",
                 "program": "ЛНА-1",
-                "fact_date": date(2026, 10, 1),
+                "fact_date": date.today(),
                 "instructor_id": instructor["id"],
                 "paper_confirmed": True,
                 "plan_id": plan["id"],
             },
         )
         fresh = excel_store.open_book(book.path, data_dir=book.data_dir)
-        assert len(fresh.table("Инстракт") if False else fresh.table("Инструктажи").rows) == 1
-        row = fresh.table("Инструктажи").rows[0]
-        assert row["status"] == "Проведён"
-        assert plan_code in str(row["note"])
+        rows = fresh.table("Инструктажи").rows
+        completed = [r for r in rows if r["status"] == "Проведён"]
+        # Одна проведённая запись (план завершён), плюс автоматически
+        # созданный следующий повторный план.
+        assert len(completed) == 1
+        assert len(rows) == 2
+        assert plan_code in str(completed[0]["note"])
 
     def test_similar_document_requires_confirmation(self, book, worker, instructor):
         payload = {
@@ -411,28 +431,35 @@ class TestManualPaper:
                     "paper_confirmed": True,
                 },
             )
-        codes = {r["code"] for r in book.table("Инструктажи").rows}
-        assert codes == {config.MANUAL_CODE}
-        assert len(book.table("Инструктажи").rows) == 3
+        manual_rows = [r for r in book.table("Инструктажи").rows if r["source"] == "Ручной бланк"]
+        assert len(manual_rows) == 3
+        assert {r["code"] for r in manual_rows} == {config.MANUAL_CODE}
+        # Автоматически созданный следующий повторный план имеет обычный код.
+        planned_rows = [r for r in book.table("Инструктажи").rows if r["status"] == "Запланирован"]
+        assert all(r["code"] != config.MANUAL_CODE for r in planned_rows)
 
     def test_stale_repeat_plans_detected(self, book, worker, instructor):
+        from datetime import timedelta
+
+        plan_date = date.today() + timedelta(days=10)
         plan = services.plan_training(
             book,
             {
                 "worker_id": worker["id"],
                 "instructor_id": instructor["id"],
-                "plan_date": date(2026, 3, 1),
+                "plan_date": plan_date,
                 "type": "Повторный",
                 "program": "ЛНА-1",
             },
         )
+        # Бумажный документ вносится за более позднюю дату, чем стоял план.
         registration.register_manual(
             book,
             {
                 "worker_id": worker["id"],
                 "type": "Повторный",
                 "program": "ЛНА-1",
-                "fact_date": date(2026, 9, 1),
+                "fact_date": date.today(),
                 "instructor_id": instructor["id"],
                 "paper_confirmed": True,
                 "plan_id": plan["id"],

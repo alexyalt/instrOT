@@ -181,7 +181,8 @@ def validate_registration(data: dict[str, Any], *, today: date | None = None) ->
         errors["paper_confirmed"] = "Подтвердите, что оригинал с подписями есть на руках."
 
     instructor_id = str(data.get("instructor_id") or "").strip()
-    if not instructor_id:
+    # При связывании с планом инструктирующий известен из самого плана.
+    if not instructor_id and not str(data.get("plan_id") or "").strip():
         errors["instructor_id"] = "Выберите инструктирующего."
 
     if errors:

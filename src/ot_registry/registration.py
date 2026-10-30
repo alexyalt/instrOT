@@ -196,6 +196,19 @@ def register_manual(book: Book, data: dict[str, Any], *,
     clean = validation.validate_manual_entry(data)
     training_type = clean["type"]
     fact_date = clean["fact_date"]
+
+    # При связывании с планом инструктирующий берётся из плана: специалист
+    # не должен вводить его повторно с бумажного бланка.
+    plan_row = None
+    if clean["plan_id"]:
+        plan_row = book.table("Инструктажи").by_key("id", clean["plan_id"])
+        if plan_row is None:
+            raise NotFoundError("Выбранный план не найден.")
+        if plan_row.get("status") != "Запланирован":
+            raise ConflictError("Выбранный план уже завершён или отменён.")
+        if not clean["instructor_id"]:
+            clean["instructor_id"] = str(plan_row.get("instructor_id") or "")
+
     trainer = _check_instructor(
         book, clean["instructor_id"], on=fact_date, training_type=training_type
     )
@@ -227,14 +240,6 @@ def register_manual(book: Book, data: dict[str, Any], *,
             "подтвердите это.",
             details=[str(t.get("id")) for t in similar],
         )
-
-    plan_row = None
-    if clean["plan_id"]:
-        plan_row = book.table("Инструктажи").by_key("id", clean["plan_id"])
-        if plan_row is None:
-            raise NotFoundError("Выбранный план не найден.")
-        if plan_row.get("status") != "Запланирован":
-            raise ConflictError("Выбранный план уже завершён или отменён.")
 
     numbers = issue_numbers(book, training_type, fact_date)
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
