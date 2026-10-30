@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Новый работник — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Новый работник</h1>
+
+{% if message %}<div class="flash flash-error">{{ message }}
+  {% if details %}<ul class="errors">{% for d in details %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+</div>{% endif %}
+
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <div class="grid grid-2">
+    <div class="field {% if errors.fio %}field-error{% endif %}">
+      <label for="fio">ФИО *</label>
+      <input type="text" id="fio" name="fio" required value="{{ form.fio or '' }}">
+      {% if errors.fio %}<div class="error-text">{{ errors.fio }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label for="personnel_no">Табельный номер</label>
+      <input type="text" id="personnel_no" name="personnel_no" value="{{ form.personnel_no or '' }}">
+      <div class="hint">Может повторяться и не обязателен. Ведущие нули сохраняются.</div>
+    </div>
+    <div class="field {% if errors.position %}field-error{% endif %}">
+      <label for="position">Должность *</label>
+      <input type="text" id="position" name="position" required value="{{ form.position or '' }}"
+             data-suggestions='{{ dicts.position | tojson }}'>
+      {% if errors.position %}<div class="error-text">{{ errors.position }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label for="department">Подразделение</label>
+      <input type="text" id="department" name="department" value="{{ form.department or '' }}"
+             data-suggestions='{{ dicts.department | tojson }}'>
+    </div>
+    <div class="field">
+      <label for="manager">Руководитель</label>
+      <input type="text" id="manager" name="manager" value="{{ form.manager or '' }}">
+    </div>
+    <div class="field {% if errors.hire_date %}field-error{% endif %}">
+      <label for="hire_date">Дата приёма</label>
+      <input type="date" id="hire_date" name="hire_date" value="{{ form.hire_date or '' }}">
+      {% if errors.hire_date %}<div class="error-text">{{ errors.hire_date }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label for="birth_date">Дата рождения</label>
+      <input type="date" id="birth_date" name="birth_date" value="{{ form.birth_date or '' }}">
+      <div class="hint">Только если требуется формой вашего бланка.</div>
+    </div>
+    <div class="field {% if errors.period_months %}field-error{% endif %}">
+      <label for="period_months">Периодичность повторного, месяцев</label>
+      <input type="number" id="period_months" name="period_months" min="1" max="120"
+             value="{{ form.period_months or '' }}" placeholder="по настройке организации">
+      {% if errors.period_months %}<div class="error-text">{{ errors.period_months }}</div>{% endif %}
+      <div class="hint">Оставьте пустым, чтобы использовалась периодичность организации.</div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="note">Примечание</label>
+    <input type="text" id="note" name="note" value="{{ form.note or '' }}">
+  </div>
+
+  <div class="checkbox-row">
+    <input type="checkbox" id="allow_duplicate" name="allow_duplicate" {% if form.allow_duplicate %}checked{% endif %}>
+    <label for="allow_duplicate">Это другой человек с таким же ФИО — создать отдельную запись</label>
+  </div>
+
+  <div class="actions">
+    <button type="submit">Сохранить</button>
+    <a class="button secondary" href="{{ url_for('workers_list') }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}

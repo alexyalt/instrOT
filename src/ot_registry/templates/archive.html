@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Архив — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Архив: дела и пакеты</h1>
+<p class="muted">
+  Дело — по виду инструктажа и году; внутри дела один открытый пакет.
+  Закрытие пакета фиксирует, что листы подшиты.
+</p>
+
+<div class="panel">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Дело</th><th>Год</th><th>Вид</th><th>Пакет</th><th>Название</th>
+            <th>Открыт</th><th>Закрыт</th><th>Статус</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="mono">{{ r.case_id or '—' }}</td>
+          <td>{{ r.year or '—' }}</td>
+          <td class="small">{{ r.type or '—' }}</td>
+          <td class="mono">{{ r.pack_id or '—' }}</td>
+          <td class="small">{{ r.title or '—' }}</td>
+          <td class="small">{{ r.opened_at | ru_date or '—' }}</td>
+          <td class="small">{{ r.closed_at | ru_date or '—' }}</td>
+          <td>
+            {% if r.status == 'Открыт' %}<span class="badge badge-warn">Открыт</span>
+            {% else %}<span class="badge">Закрыт</span>{% endif %}
+          </td>
+          <td>
+            {% if r.pack_id and r.status == 'Открыт' %}
+            <form method="post" action="{{ url_for('close_pack') }}" class="inline">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="case_id" value="{{ r.case_id }}">
+              <input type="hidden" name="pack_id" value="{{ r.pack_id }}">
+              <input type="hidden" name="reason" value="Закрытие пакета">
+              <button type="submit" class="secondary" style="padding:4px 10px;font-size:12px">Закрыть</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Архив пуст: дела и пакеты появятся при регистрации инструктажей.</p>
+  {% endif %}
+</div>
+
+<div class="help">
+  Номера дела и пакета присваиваются автоматически при регистрации проведённого
+  инструктажа. Поздний документ за прошлый год ищется по номеру дела — проверьте
+  год и статус пакета перед подшивкой.
+</div>
+{% endblock %}

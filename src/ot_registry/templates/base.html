@@ -1,0 +1,72 @@
+{# Базовый шаблон: шапка, выбор организации, навигация, сообщения. #}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_title }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <a href="{{ url_for('index') }}" class="brand-link">инстрОТ</a>
+    <span class="brand-sub">{{ app_title }}</span>
+  </div>
+  <div class="org-switcher">
+    {% if organizations %}
+      <form method="post" action="{{ url_for('select_org') }}" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <label for="org_uuid" class="sr-only">Организация</label>
+        <select name="org_uuid" id="org_uuid" onchange="this.form.submit()" class="org-select">
+          {% for org in organizations %}
+            <option value="{{ org.uuid }}" {% if current_org and org.uuid == current_org.uuid %}selected{% endif %}>
+              {{ org.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </form>
+    {% else %}
+      <span class="muted">Организации не добавлены</span>
+    {% endif %}
+  </div>
+</header>
+
+{% if current_org %}
+<nav class="mainnav">
+  <a href="{{ url_for('dashboard') }}">Сроки</a>
+  <a href="{{ url_for('trainings_list') }}">Инструктажи</a>
+  <a href="{{ url_for('training_new') }}">Планировать</a>
+  <a href="{{ url_for('register') }}">Регистрация</a>
+  <a href="{{ url_for('manual_entry') }}">Внести бумажный</a>
+  <a href="{{ url_for('print_forms') }}">Печать</a>
+  <a href="{{ url_for('workers_list') }}">Работники</a>
+  <a href="{{ url_for('instructors_list') }}">Инструктирующие</a>
+  <a href="{{ url_for('reports_page') }}">Отчёты</a>
+  <a href="{{ url_for('archive') }}">Архив</a>
+  <a href="{{ url_for('excel_page') }}">Excel и резерв</a>
+  <a href="{{ url_for('settings_page') }}">Настройки</a>
+</nav>
+{% endif %}
+
+<main class="content">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flashes">
+        {% for category, text in messages %}
+          <div class="flash flash-{{ category }}">{{ text }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <span>instrOT {{ app_version }}</span> ·
+  <span>работает локально, без интернета</span> ·
+  <a href="{{ url_for('about') }}">о программе и правилах</a>
+</footer>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

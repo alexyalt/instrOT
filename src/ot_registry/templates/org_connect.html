@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Подключить книгу — {{ app_title }}{% endblock %}
+{% block content %}
+<h1>Подключить существующую книгу</h1>
+
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <div class="field">
+    <label for="path">Полный путь к файлу книги (.xlsx)</label>
+    <input type="text" id="path" name="path" required value="{{ form.path or '' }}"
+           placeholder="C:\Users\...\OTRegistry\organizations\...\registry.xlsx">
+    <div class="hint">
+      Книга должна быть создана этим приложением. Файл открывается только на чтение
+      для проверки; изменения в него не вносятся.
+    </div>
+  </div>
+  <div class="help">
+    Копия книги с тем же идентификатором организации считается той же организацией,
+    а не новой. Для независимого учёта создайте новую книгу.
+  </div>
+  <div class="actions">
+    <button type="submit">Подключить</button>
+    <a class="button secondary" href="{{ url_for('index') }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}

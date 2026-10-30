@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Excel и резервные копии — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Excel и резервные копии</h1>
+
+{% if message %}<div class="flash flash-{{ message_kind or 'info' }}">{{ message }}</div>{% endif %}
+
+<div class="panel">
+  <h2 style="margin-top:0">Состояние</h2>
+  <table class="data">
+    <tbody>
+      <tr><th style="width:38%">Файл книги</th><td class="mono small" style="word-break:break-all">{{ entry.path }}</td></tr>
+      <tr><th>Версия схемы</th><td>{{ book.org_value('schema_version') }}</td></tr>
+      <tr>
+        <th>Ручной режим</th>
+        <td>
+          {% if state.active %}
+            <span class="badge badge-warn">включён</span> с {{ state.opened_at }}
+            <div class="small muted">Запись через приложение заблокирована.</div>
+          {% else %}
+            <span class="badge badge-ok">выключен</span>
+            <div class="small muted">Приложение может сохранять изменения.</div>
+          {% endif %}
+        </td>
+      </tr>
+      <tr><th>Резервных копий</th><td>{{ backup_count }}</td></tr>
+      <tr><th>Последняя копия</th><td class="small">{{ last_backup or 'нет' }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% if state.active %}
+<div class="panel">
+  <h2 style="margin-top:0">Шаг 2. Проверить книгу после правок</h2>
+  <p class="small">
+    Закройте файл в Excel и нажмите проверку. Книга сравнится с контрольной копией
+    по постоянным ID: сортировка строк не создаёт ложных изменений.
+  </p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('excel_check') }}" class="inline" data-once>
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit">Проверить и перечитать</button>
+    </form>
+    <a class="button secondary" href="{{ url_for('excel_open') }}">Снова открыть Excel</a>
+  </div>
+</div>
+
+<div class="panel danger-zone">
+  <h3 style="margin-top:0">Отмена</h3>
+  <p class="small muted">
+    «Вернуть контрольную копию» отменит все правки, сделанные в Excel с момента
+    включения ручного режима. Текущий файл будет сохранён в резервные копии.
+  </p>
+  <form method="post" action="{{ url_for('excel_cancel') }}" data-once
+        onsubmit="return confirm('Вернуть книгу к состоянию до ручного редактирования?')">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="restore" value="1">
+    <button type="submit" class="danger">Вернуть контрольную копию</button>
+  </form>
+</div>
+
+{% else %}
+<div class="panel">
+  <h2 style="margin-top:0">Шаг 1. Открыть для ручного редактирования</h2>
+  <p class="small">
+    Перед открытием создаётся контрольная копия и снимок данных, запись через
+    приложение блокируется. После закрытия Excel вернитесь сюда и выполните проверку.
+  </p>
+  <div class="help" style="margin-bottom:12px">
+    В Excel разрешено исправлять обычные данные (ФИО, должность, даты, примечания),
+    добавлять новых работников и записи. Нельзя менять ID, выданные регистрационные
+    номера и удалять историю: такие правки будут отклонены при проверке.
+  </div>
+  <div class="actions">
+    <form method="post" action="{{ url_for('excel_open') }}" class="inline" data-once>
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit">Открыть Excel для редактирования</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if report %}
+<div class="panel">
+  <h2 style="margin-top:0">Результат проверки</h2>
+  {% if report.fatal %}
+    <div class="flash flash-error">{{ report.fatal }}</div>
+  {% elif report.ok %}
+    <div class="flash flash-ok">Ошибок не найдено. Изменения можно принять.</div>
+  {% else %}
+    <div class="flash flash-error">
+      Найдены ошибки — принять изменения нельзя, пока они не исправлены в Excel.
+    </div>
+    <ul class="errors">
+      {% for problem in report.problems %}<li>{{ problem }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if report.diffs %}
+  <h3>Изменения</h3>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Лист</th><th>Что изменилось</th><th>Пометка</th></tr></thead>
+      <tbody>
+        {% for d in report.diffs %}
+        <tr class="{% if d.blocked %}due-overdue{% endif %}">
+          <td class="small">{{ d.sheet }}</td>
+          <td class="small">{{ d.describe() }}</td>
+          <td class="small">{{ d.note or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Предметных изменений нет.</p>
+  {% endif %}
+
+  {% if report.ok and not report.fatal %}
+  <form method="post" action="{{ url_for('excel_accept') }}" class="actions" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="field" style="flex:1 1 320px">
+      <label for="reason">Основание правок</label>
+      <input type="text" id="reason" name="reason" placeholder="например: уточнение кадровых данных">
+    </div>
+    <button type="submit">Принять изменения</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2 style="margin-top:0">Резервные копии</h2>
+  <p class="small muted">
+    Копия создаётся перед каждой записью приложения, перед ручным режимом и миграцией.
+    Хранятся последние {{ keep }} копий.
+  </p>
+  {% if backups %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Файл</th><th>Размер</th><th>Изменён</th></tr></thead>
+      <tbody>
+        {% for b in backups %}
+        <tr>
+          <td class="mono small">{{ b.name }}</td>
+          <td class="small">{{ b.size }}</td>
+          <td class="small">{{ b.modified }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Копий пока нет.</p>
+  {% endif %}
+</div>
+{% endblock %}

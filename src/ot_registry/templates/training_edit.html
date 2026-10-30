@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Исправление записи — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Исправление записи инструктажа</h1>
+
+{% if message %}<div class="flash flash-error">{{ message }}</div>{% endif %}
+
+<div class="panel">
+  <p class="muted small">
+    Исправляются только описательные данные. Вид инструктажа, фактические даты
+    и выданные регистрационные номера не меняются: они уже перенесены на бумажный
+    оригинал. Если документ оформлен ошибочно, его следует аннулировать, а не
+    переписывать под другой инструктаж.
+  </p>
+  <table class="data">
+    <tbody>
+      <tr><th style="width:35%">Работник</th><td>{{ row.fio }}</td></tr>
+      <tr><th>Вид</th><td>{{ row.type }}</td></tr>
+      <tr><th>Дата факта</th><td>{{ row.fact_date | ru_date }}</td></tr>
+      <tr><th>Номера</th><td class="mono">{{ row.number_ot }} / {{ row.number_type }} / {{ row.case_id }}-{{ row.pack_id }}</td></tr>
+      <tr><th>Код бланка</th><td class="mono">{{ row.code | format_code }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <div class="grid grid-2">
+    <div class="field">
+      <label for="fio">ФИО работника</label>
+      <input type="text" id="fio" name="fio" value="{{ row.fio or '' }}">
+    </div>
+    <div class="field">
+      <label for="position">Должность</label>
+      <input type="text" id="position" name="position" value="{{ row.position or '' }}">
+    </div>
+    <div class="field">
+      <label for="department">Подразделение</label>
+      <input type="text" id="department" name="department" value="{{ row.department or '' }}">
+    </div>
+    <div class="field">
+      <label for="program">ЛНА / программа</label>
+      <input type="text" id="program" name="program" value="{{ row.program or '' }}">
+    </div>
+    <div class="field">
+      <label for="reason">Причина</label>
+      <input type="text" id="reason_field" name="reason" value="{{ row.reason or '' }}">
+    </div>
+  </div>
+  <div class="field">
+    <label for="note">Примечание</label>
+    <input type="text" id="note" name="note" value="{{ row.note or '' }}">
+  </div>
+  <div class="field {% if errors.reason %}field-error{% endif %}">
+    <label for="change_reason">Основание исправления *</label>
+    <input type="text" id="change_reason" name="change_reason" required
+           placeholder="например: опечатка в фамилии, уточнено подразделение">
+    {% if errors.reason %}<div class="error-text">{{ errors.reason }}</div>{% endif %}
+    <div class="hint">Основание и прежние значения сохраняются в журнале действий.</div>
+  </div>
+  <div class="actions">
+    <button type="submit">Сохранить исправление</button>
+    <a class="button secondary" href="{{ url_for('trainings_list') }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}

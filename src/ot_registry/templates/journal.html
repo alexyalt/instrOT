@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Журнал действий — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Журнал действий</h1>
+<p class="muted">
+  Последние операции по книге. Журнал помогает понять, кто и что изменил;
+  он не защищает от изменений пользователем с полным доступом к компьютеру.
+</p>
+
+<div class="panel">
+  {% if events %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Время</th><th>Действие</th><th>Объект</th><th>Основание</th><th>Пользователь</th></tr></thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="small mono">{{ e.ts }}</td>
+          <td class="small">{{ e.action }}</td>
+          <td class="small">{{ e.entity }}{% if e.entity_id %} <span class="mono">…{{ e.entity_id[-8:] }}</span>{% endif %}</td>
+          <td class="small">{{ e.reason or '—' }}</td>
+          <td class="small">{{ e.user or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Записей пока нет.</p>
+  {% endif %}
+</div>
+
+<div class="actions">
+  <a class="button secondary" href="{{ url_for('settings_page') }}">К настройкам</a>
+</div>
+{% endblock %}

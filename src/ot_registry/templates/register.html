@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Регистрация — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Регистрация проведённого инструктажа</h1>
+
+{% if message %}<div class="flash flash-error">{{ message }}
+  {% if details %}<ul class="errors">{% for d in details %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+</div>{% endif %}
+
+{% if not training %}
+<form method="post" class="panel" data-once>
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="action" value="find">
+  <div class="field">
+    <label for="code">Код бланка</label>
+    <input type="text" id="code" name="code" value="{{ code }}" autofocus
+           placeholder="256-541 или 256541" inputmode="numeric">
+    <div class="hint">
+      Код напечатан на бланке. Код <span class="mono">{{ manual_code }}</span> означает
+      бумажный бланк, заполненный вручную — откроется форма внесения бумаги.
+    </div>
+  </div>
+  <div class="actions">
+    <button type="submit">Найти</button>
+    <a class="button secondary" href="{{ url_for('trainings_list') }}">К списку</a>
+  </div>
+</form>
+{% else %}
+<div class="panel">
+  <h2 style="margin-top:0">{{ training.fio }}</h2>
+  <p class="muted small">{{ training.position }}{% if training.department %} · {{ training.department }}{% endif %}</p>
+
+  <table class="data" style="margin-top:10px">
+    <tbody>
+      <tr><th style="width:38%">Вид инструктажа</th><td>{{ training.type }}</td></tr>
+      <tr><th>Плановая дата</th><td>{{ training.plan_date | ru_date or '—' }}</td></tr>
+      <tr><th>Программа / инструкции</th><td>{{ training.program or '—' }}</td></tr>
+      {% if training.reason %}<tr><th>Причина</th><td>{{ training.reason }}</td></tr>{% endif %}
+      <tr><th>Инструктирующий по плану</th><td>{{ training.instructor_fio or '—' }}</td></tr>
+      <tr><th>Код бланка</th><td class="mono">{{ training.code | format_code }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<form method="post" class="panel" data-once>
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="action" value="register">
+  <input type="hidden" name="training_id" value="{{ training.id }}">
+  <input type="hidden" name="code" value="{{ code }}">
+
+  <div class="grid grid-2">
+    <div class="field {% if errors.fact_date %}field-error{% endif %}">
+      <label for="fact_date">Фактическая дата проведения *</label>
+      <input type="date" id="fact_date" name="fact_date" required
+             value="{{ fact_date.strftime('%Y-%m-%d') if fact_date is not string and fact_date else (fact_date or '') }}">
+      {% if errors.fact_date %}<div class="error-text">{{ errors.fact_date }}</div>{% endif %}
+      <div class="hint">Берётся с бланка. Дата внесения в систему фиксируется отдельно.</div>
+    </div>
+
+    <div class="field {% if errors.instructor_id %}field-error{% endif %}">
+      <label for="instructor_id">Инструктирующий *</label>
+      <select id="instructor_id" name="instructor_id" required>
+        {% for i in instructors %}
+        <option value="{{ i.id }}" {% if training.instructor_id == i.id %}selected{% endif %}>{{ i.fio }}</option>
+        {% endfor %}
+      </select>
+      {% if errors.instructor_id %}<div class="error-text">{{ errors.instructor_id }}</div>{% endif %}
+      <div class="hint">Проверяется действующий допуск на фактическую дату.</div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="note">Примечание</label>
+    <input type="text" id="note" name="note">
+  </div>
+
+  <div class="checkbox-row {% if errors.paper_confirmed %}field-error{% endif %}">
+    <input type="checkbox" id="paper_confirmed" name="paper_confirmed" required>
+    <label for="paper_confirmed">
+      Оригинал бланка с собственноручными подписями работника и инструктирующего
+      есть на руках и будет подшит. *
+    </label>
+  </div>
+  {% if errors.paper_confirmed %}<div class="error-text">{{ errors.paper_confirmed }}</div>{% endif %}
+
+  <div class="help">
+    После подтверждения система присвоит регистрационные номера: сквозной, по виду,
+    дело и пакет. Их нужно вписать в отведённые поля оригинала.
+  </div>
+
+  <div class="actions">
+    <button type="submit">Подтвердить проведение</button>
+    <a class="button secondary" href="{{ url_for('register') }}">Другой код</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

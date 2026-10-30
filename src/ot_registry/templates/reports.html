@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Отчёты — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Отчёты и контроль</h1>
+
+<div class="grid grid-3">
+  <div class="stat {% if counts.overdue %}stat-danger{% else %}stat-ok{% endif %}">
+    <div class="stat-value">{{ counts.overdue }}</div>
+    <div class="stat-label">просрочено</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ incomplete | length }}</div>
+    <div class="stat-label">неполные регистрации</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ expiring | length }}</div>
+    <div class="stat-label">истекающих допусков</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Полнота обязательных реквизитов</h2>
+  <p class="small muted">
+    Проверка по пп. 86-87 Правил № 2464: дата проведения, ФИО, должность, дата рождения,
+    вид, причина (для внепланового и целевого), инструктирующий, наименование ЛНА,
+    подтверждение подписанного оригинала.
+  </p>
+  {% if incomplete %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Работник</th><th>Вид</th><th>Факт</th><th>Не хватает</th><th>Номер</th></tr></thead>
+      <tbody>
+        {% for item in incomplete %}
+        <tr class="due-upcoming">
+          <td class="small"><a href="{{ url_for('worker_card', worker_id=item.row.worker_id) }}">{{ item.row.fio }}</a></td>
+          <td class="small">{{ item.row.type }}</td>
+          <td class="small">{{ item.row.fact_date | ru_date or '-' }}</td>
+          <td class="small">{{ item.missing | join(', ') }}</td>
+          <td class="small mono">{{ item.row.number_ot or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small">
+    Исправьте недостающие данные в карточке работника или в самой записи.
+    Для давно проведённых документов, оформленных до внедрения системы,
+    допустимо оставить примечание с основанием.
+  </p>
+  {% else %}
+    <p class="muted">Все проведённые записи содержат обязательные реквизиты.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">План повторных инструктажей на 30 дней</h2>
+  {% if repeat_soon %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>План</th><th>Работник</th><th>Должность</th><th>Инструктирующий</th><th>Код</th></tr></thead>
+      <tbody>
+        {% for row in repeat_soon %}
+        <tr>
+          <td class="small">{{ row.plan_date | ru_date }}</td>
+          <td class="small">{{ row.fio }}</td>
+          <td class="small">{{ row.position }}</td>
+          <td class="small">{{ row.instructor_fio or '-' }}</td>
+          <td class="mono small">{{ row.code | format_code }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Повторных инструктажей в ближайшие 30 дней не запланировано.</p>
+  {% endif %}
+</div>
+
+<div class="grid grid-2">
+  <div class="panel">
+    <h2 style="margin-top:0">Допуски инструктирующих</h2>
+    {% if expiring %}
+    <table class="data">
+      <thead><tr><th>ФИО</th><th>Программа</th><th>Действует по</th><th></th></tr></thead>
+      <tbody>
+        {% for row in expiring %}
+        <tr class="{% if row.valid_to and row.valid_to < today() %}due-overdue{% else %}due-upcoming{% endif %}">
+          <td class="small">{{ row.fio }}</td>
+          <td class="small">{{ row.program or '-' }}</td>
+          <td class="small">{{ row.valid_to | ru_date }}</td>
+          <td class="small">{% if row.valid_to and row.valid_to < today() %}<strong>истёк</strong>{% else %}истекает{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="muted">Истекающих допусков нет.</p>
+    {% endif %}
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('instructors_list') }}">Все допуски</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Проведено за {{ year }} год</h2>
+    {% if summary %}
+    <table class="data">
+      <thead><tr><th>Вид</th><th>Всего</th><th>Из них по бумаге</th></tr></thead>
+      <tbody>
+        {% for row in summary %}
+        <tr><td class="small">{{ row.type }}</td><td>{{ row.total }}</td><td>{{ row.manual }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="muted">За текущий год проведённых инструктажей нет.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Пакеты документов</h2>
+  {% if packs %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Дело</th><th>Пакет</th><th>Вид</th><th>Документов</th><th>Статус</th><th>Закрыт</th><th></th></tr></thead>
+      <tbody>
+        {% for row in packs %}
+        <tr>
+          <td class="mono small">{{ row.case_id }}</td>
+          <td class="mono small">{{ row.pack_id }}</td>
+          <td class="small">{{ row.type }}</td>
+          <td>{{ row.documents }}</td>
+          <td>
+            {% if row.status == 'Открыт' %}<span class="badge badge-warn">Открыт</span>
+            {% else %}<span class="badge">Закрыт</span>{% endif %}
+          </td>
+          <td class="small">{{ row.closed_at | ru_date or '-' }}</td>
+          <td><a class="small" href="{{ url_for('pack_registry', case_id=row.case_id, pack_id=row.pack_id) }}">Реестр</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Пакеты появятся после регистрации проведённых инструктажей.</p>
+  {% endif %}
+</div>
+{% endblock %}

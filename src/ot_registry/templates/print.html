@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Печать — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Печать бланков</h1>
+
+{% if message %}<div class="flash flash-error">{{ message }}</div>{% endif %}
+
+{% if result %}
+<div class="panel">
+  <h3 style="margin-top:0">Файл сформирован</h3>
+  <p>Карточек: <strong>{{ result.cards }}</strong></p>
+  {% if result.note %}<div class="flash flash-info">{{ result.note }}</div>{% endif %}
+  <div class="actions">
+    <a class="button" href="{{ url_for('download', name=result.docx_path.name) }}">Скачать DOCX</a>
+    {% if result.pdf_path %}
+    <a class="button secondary" href="{{ url_for('download', name=result.pdf_path.name) }}">Скачать PDF</a>
+    {% endif %}
+  </div>
+  <p class="muted small mono" style="margin-top:10px">{{ result.docx_path }}</p>
+</div>
+{% endif %}
+
+<div class="grid grid-2">
+  <div class="panel">
+    <h2 style="margin-top:0">Заполненные бланки по планам</h2>
+    <p class="small muted">
+      Печатаются карточки с кодом бланка. Фактическая дата, подписи и номера
+      заполняются от руки после проведения.
+    </p>
+    {% if rows %}
+    <form method="post" data-once>
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="mode" value="filled">
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th><input type="checkbox" data-select-all="#plans"></th>
+              <th>План</th><th>Работник</th><th>Вид</th><th>Код</th>
+            </tr>
+          </thead>
+          <tbody id="plans">
+            {% for row, info in rows %}
+            <tr class="{{ info.css }}">
+              <td><input type="checkbox" name="training_ids" value="{{ row.id }}"></td>
+              <td class="small">{{ row.plan_date | ru_date }}</td>
+              <td class="small">{{ row.fio }}</td>
+              <td class="small">{{ row.type }}</td>
+              <td class="mono small">{{ row.code | format_code }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="actions"><button type="submit">Печать выбранных</button></div>
+    </form>
+    {% else %}
+      <p class="muted">Нет запланированных инструктажей для печати.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Пустые бланки для ручного режима</h2>
+    <p class="small">
+      На всех бланках печатается общий код <span class="mono">{{ manual_code }}</span> и надпись
+      «ручное заполнение». Печать не создаёт работников, планов или проведённых записей —
+      только запас бумаги на случай работы без компьютера или электричества.
+    </p>
+    <form method="post" data-once>
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="mode" value="blank">
+      <div class="field">
+        <label for="type">Вид инструктажа</label>
+        <select id="type" name="type" required>
+          {% for t in training_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="count">Количество бланков</label>
+        <input type="number" id="count" name="count" value="5" min="1" max="50">
+      </div>
+      <div class="actions"><button type="submit">Печать пустых бланков</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

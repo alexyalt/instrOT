@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Настройки — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Настройки организации</h1>
+
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <h2 style="margin-top:0">Реквизиты для бланков</h2>
+  <div class="grid grid-2">
+    <div class="field">
+      <label for="full_name">Полное наименование</label>
+      <input type="text" id="full_name" name="full_name" value="{{ book.org_value('full_name') }}">
+    </div>
+    <div class="field">
+      <label for="inn">ИНН</label>
+      <input type="text" id="inn" name="inn" value="{{ book.org_value('inn') }}">
+    </div>
+    <div class="field">
+      <label for="kpp">КПП</label>
+      <input type="text" id="kpp" name="kpp" value="{{ book.org_value('kpp') }}">
+    </div>
+    <div class="field">
+      <label for="ogrn">ОГРН</label>
+      <input type="text" id="ogrn" name="ogrn" value="{{ book.org_value('ogrn') }}">
+    </div>
+    <div class="field">
+      <label for="director">Руководитель</label>
+      <input type="text" id="director" name="director" value="{{ book.org_value('director') }}">
+    </div>
+    <div class="field">
+      <label for="ot_specialist">Специалист по охране труда</label>
+      <input type="text" id="ot_specialist" name="ot_specialist" value="{{ book.org_value('ot_specialist') }}">
+    </div>
+  </div>
+  <div class="field">
+    <label for="address">Адрес</label>
+    <input type="text" id="address" name="address" value="{{ book.org_value('address') }}">
+  </div>
+
+  <h2>Сроки и подсветка</h2>
+  <div class="grid grid-3">
+    <div class="field">
+      <label for="soon_days">«Ближайшие» — до, дней</label>
+      <input type="number" id="soon_days" name="soon_days" min="1" max="60"
+             value="{{ book.org_value('soon_days', '7') }}">
+    </div>
+    <div class="field">
+      <label for="upcoming_days">«Скоро» — до, дней</label>
+      <input type="number" id="upcoming_days" name="upcoming_days" min="1" max="180"
+             value="{{ book.org_value('upcoming_days', '14') }}">
+    </div>
+    <div class="field">
+      <label for="default_period">Периодичность повторного, мес</label>
+      <input type="number" id="default_period" name="default_period" min="1" max="120"
+             value="{{ book.org_value('default_period', '12') }}">
+    </div>
+  </div>
+  <div class="help">
+    Периодичность повторного инструктажа определяется правилами работодателя для конкретных
+    видов работ и должностей. Значение здесь — общее для организации; для отдельного
+    работника его можно переопределить в карточке. Универсальный срок не является нормой
+    для всех работ.
+  </div>
+
+  <div class="actions"><button type="submit">Сохранить настройки</button></div>
+</form>
+
+<div class="panel">
+  <h2 style="margin-top:0">Книга Excel</h2>
+  <p class="mono small" style="word-break:break-all">{{ entry.path }}</p>
+  <table class="data">
+    <tbody>
+      <tr><th>Версия схемы</th><td>{{ book.org_value('schema_version') }}</td></tr>
+      <tr><th>Идентификатор организации</th><td class="mono small">{{ book.org_uuid }}</td></tr>
+      <tr><th>Пакетов закрыто</th><td>{{ book.table('Архив').rows | selectattr('status', 'equalto', 'Закрыт') | list | length }}</td></tr>
+    </tbody>
+  </table>
+  <p class="muted small">
+    Ведение книги вручную (ручной режим Excel) подключается на следующем этапе разработки.
+    Пока не открывайте книгу в Excel одновременно с работой приложения.
+  </p>
+  <div class="actions">
+    <a class="button secondary" href="{{ url_for('journal_view') }}">Журнал действий</a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Работники — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Работники</h1>
+
+<div class="panel panel-tight">
+  <form method="get" class="row">
+    <div class="field">
+      <label for="q">Поиск по ФИО, должности, подразделению, табельному</label>
+      <input type="text" id="q" name="q" value="{{ search }}">
+    </div>
+    <div class="field" style="flex:0 0 auto"><button type="submit">Найти</button></div>
+    <div class="field" style="flex:0 0 auto">
+      <a class="button secondary" href="{{ url_for('worker_new') }}">Добавить работника</a>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>ФИО</th><th>Табельный</th><th>Должность</th><th>Подразделение</th>
+            <th>Статус</th><th>Приём</th><th>Периодичность</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for w in rows %}
+        <tr>
+          <td><a href="{{ url_for('worker_card', worker_id=w.id) }}">{{ w.fio }}</a></td>
+          <td class="mono small">{{ w.personnel_no or '—' }}</td>
+          <td class="small">{{ w.position }}</td>
+          <td class="small">{{ w.department or '—' }}</td>
+          <td>
+            {% if w.status == 'Работает' %}<span class="badge badge-ok">Работает</span>
+            {% else %}<span class="badge">Уволен</span>{% endif %}
+          </td>
+          <td class="small">{{ w.hire_date | ru_date or '—' }}</td>
+          <td class="small">{{ w.period_months ~ ' мес' if w.period_months else 'по организации' }}</td>
+          <td><a class="small" href="{{ url_for('training_new') }}?worker_id={{ w.id }}">Планировать</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Работников нет. Добавьте первого.</p>
+  {% endif %}
+</div>
+{% endblock %}

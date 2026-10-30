@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Новая организация — {{ app_title }}{% endblock %}
+{% block content %}
+<h1>Новая организация</h1>
+
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <div class="grid grid-2">
+    <div class="field">
+      <label for="name">Краткое название *</label>
+      <input type="text" id="name" name="name" required value="{{ form.name or '' }}" placeholder="ООО «Ромашка»">
+      <div class="hint">Показывается в списке организаций и в шапке приложения.</div>
+    </div>
+    <div class="field">
+      <label for="full_name">Полное наименование</label>
+      <input type="text" id="full_name" name="full_name" value="{{ form.full_name or '' }}">
+      <div class="hint">Печатается в бланках.</div>
+    </div>
+    <div class="field">
+      <label for="inn">ИНН</label>
+      <input type="text" id="inn" name="inn" value="{{ form.inn or '' }}">
+    </div>
+    <div class="field">
+      <label for="kpp">КПП</label>
+      <input type="text" id="kpp" name="kpp" value="{{ form.kpp or '' }}">
+    </div>
+    <div class="field">
+      <label for="ogrn">ОГРН</label>
+      <input type="text" id="ogrn" name="ogrn" value="{{ form.ogrn or '' }}">
+    </div>
+    <div class="field">
+      <label for="director">Руководитель</label>
+      <input type="text" id="director" name="director" value="{{ form.director or '' }}">
+    </div>
+    <div class="field">
+      <label for="ot_specialist">Специалист по охране труда</label>
+      <input type="text" id="ot_specialist" name="ot_specialist" value="{{ form.ot_specialist or '' }}">
+    </div>
+    <div class="field">
+      <label for="address">Адрес</label>
+      <input type="text" id="address" name="address" value="{{ form.address or '' }}">
+    </div>
+  </div>
+  <div class="help">
+    Будет создан файл книги Excel с листами для работников, инструктажей, архива и журнала.
+    Периодичность повторного инструктажа и пороги подсветки задаются позже в настройках:
+    универсальный срок не подставляется.
+  </div>
+  <div class="actions">
+    <button type="submit">Создать книгу</button>
+    <a class="button secondary" href="{{ url_for('index') }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}

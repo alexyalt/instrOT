@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}{{ worker.fio }} — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>{{ worker.fio }}</h1>
+<p class="muted">
+  {{ worker.position }}{% if worker.department %} · {{ worker.department }}{% endif %}
+  {% if worker.personnel_no %} · табельный {{ worker.personnel_no }}{% endif %}
+  {% if worker.status != 'Работает' %} · <span class="badge">Уволен</span>{% endif %}
+</p>
+
+<div class="grid grid-2">
+  <div class="panel">
+    <h2 style="margin-top:0">Инструктажи</h2>
+    {% if rows %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Срок</th><th>Вид</th><th>План</th><th>Факт</th><th>Номера</th></tr></thead>
+        <tbody>
+          {% for row, info in rows %}
+          <tr class="{{ info.css }}">
+            <td class="small">{{ info.text }}</td>
+            <td>{{ row.type }}</td>
+            <td class="small">{{ row.plan_date | ru_date or '—' }}</td>
+            <td class="small">{{ row.fact_date | ru_date or '—' }}</td>
+            <td class="small">{{ row.number_ot or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="muted">Инструктажей нет.</p>
+    {% endif %}
+    <div class="actions">
+      <a class="button" href="{{ url_for('training_new') }}?worker_id={{ worker.id }}">Запланировать</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Кадровые данные</h2>
+    <table class="data">
+      <tbody>
+        <tr><th>Дата приёма</th><td>{{ worker.hire_date | ru_date or '—' }}</td></tr>
+        <tr><th>Дата рождения</th><td>{{ worker.birth_date | ru_date or '—' }}</td></tr>
+        <tr><th>Руководитель</th><td>{{ worker.manager or '—' }}</td></tr>
+        <tr><th>Периодичность</th><td>{{ worker.period_months ~ ' мес' if worker.period_months else 'по организации' }}</td></tr>
+        {% if worker.dismiss_date %}<tr><th>Уволен</th><td>{{ worker.dismiss_date | ru_date }}</td></tr>{% endif %}
+        {% if worker.note %}<tr><th>Примечание</th><td>{{ worker.note }}</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if worker.status == 'Работает' %}
+<div class="grid grid-2">
+  <div class="panel">
+    <h2 style="margin-top:0">Перевод</h2>
+    <form method="post" action="{{ url_for('worker_transfer', worker_id=worker.id) }}" data-once>
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="field">
+        <label for="position">Новая должность</label>
+        <input type="text" id="position" name="position" required value="{{ worker.position }}">
+      </div>
+      <div class="field">
+        <label for="department">Новое подразделение</label>
+        <input type="text" id="department" name="department" value="{{ worker.department }}">
+      </div>
+      <div class="field">
+        <label for="manager">Руководитель</label>
+        <input type="text" id="manager" name="manager" value="{{ worker.manager }}">
+      </div>
+      <div class="field">
+        <label for="reason">Основание</label>
+        <input type="text" id="reason" name="reason" placeholder="приказ №… от …">
+      </div>
+      <div class="actions"><button type="submit">Сохранить перевод</button></div>
+    </form>
+  </div>
+
+  <div class="panel danger-zone">
+    <h2 style="margin-top:0">Увольнение</h2>
+    <p class="small muted">Будущие запланированные инструктажи будут отменены.</p>
+    <form method="post" action="{{ url_for('worker_dismiss', worker_id=worker.id) }}" data-once>
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="field">
+        <label for="dismiss_date">Дата увольнения</label>
+        <input type="date" id="dismiss_date" name="dismiss_date" value="{{ today().isoformat() }}">
+      </div>
+      <div class="field">
+        <label for="reason">Основание</label>
+        <input type="text" id="reason" name="reason" placeholder="приказ №… от …">
+      </div>
+      <div class="actions">
+        <button type="submit" class="danger" onclick="return confirm('Отметить работника уволенным?')">
+          Уволить
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2 style="margin-top:0">История</h2>
+  {% if history %}
+  <table class="data">
+    <thead><tr><th>Дата</th><th>Событие</th><th>Было</th><th>Стало</th><th>Основание</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+      <tr>
+        <td class="small">{{ h.event_date | ru_date }}</td>
+        <td class="small">{{ h.event_type }}</td>
+        <td class="small">{{ h.old_value or '—' }}</td>
+        <td class="small">{{ h.new_value or '—' }}</td>
+        <td class="small">{{ h.reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">Изменений пока не было.</p>
+  {% endif %}
+</div>
+
+<div class="actions">
+  <a class="button secondary" href="{{ url_for('workers_list') }}">К списку работников</a>
+</div>
+{% endblock %}

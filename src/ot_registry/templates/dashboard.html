@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Сроки — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>{{ book.org_value('full_name') or entry.name }}</h1>
+
+<div class="grid grid-3">
+  <div class="stat stat-danger">
+    <div class="stat-value">{{ counts.overdue }}</div>
+    <div class="stat-label">просрочено</div>
+  </div>
+  <div class="stat stat-soon">
+    <div class="stat-value">{{ counts.today }}</div>
+    <div class="stat-label">сегодня</div>
+  </div>
+  <div class="stat stat-ok">
+    <div class="stat-value">{{ counts.soon }}</div>
+    <div class="stat-label">в ближайшие {{ summary.soon_days + 1 }}–{{ summary.upcoming_days }} дней</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="row" style="justify-content:space-between">
+    <h2 style="margin:0">Требуют внимания</h2>
+    <div class="actions" style="margin:0">
+      <a class="button" href="{{ url_for('register') }}">Регистрация по коду</a>
+      <a class="button secondary" href="{{ url_for('manual_entry') }}">Внести бумажный</a>
+      <a class="button secondary" href="{{ url_for('print_forms') }}">Печать</a>
+    </div>
+  </div>
+
+  {% if due_rows %}
+  <div class="table-wrap" style="margin-top:12px">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Срок</th><th>Работник</th><th>Вид</th><th>План</th>
+          <th>Инструктирующий</th><th>Код</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row, info in due_rows %}
+        <tr class="{{ info.css }}">
+          <td><strong>{{ info.text }}</strong><div class="small">{{ row.plan_date | ru_date }}</div></td>
+          <td>{{ row.fio }}</td>
+          <td>{{ row.type }}</td>
+          <td class="small">{{ row.position or '—' }}</td>
+          <td class="small">{{ row.instructor_fio or '—' }}</td>
+          <td class="mono">{{ row.code | format_code }}</td>
+          <td><a href="{{ url_for('register') }}?code={{ row.code }}">Зарегистрировать</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Нет просроченных и ближайших инструктажей.</p>
+  {% endif %}
+</div>
+
+<div class="grid grid-2">
+  <div class="panel">
+    <h2 style="margin-top:0">Сотрудники</h2>
+    <p class="muted small">Активных работников: {{ workers | length }}</p>
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('workers_list') }}">Все работники</a>
+      <a class="button secondary" href="{{ url_for('worker_new') }}">Добавить работника</a>
+    </div>
+  </div>
+  <div class="panel">
+    <h2 style="margin-top:0">Инструктирующие</h2>
+    {% if expiring %}
+      <ul class="errors" style="color:var(--warn)">
+        {% for row in expiring %}
+        <li>{{ row.fio }} — допуск до {{ row.valid_to | ru_date }}
+          {% if row.valid_to and row.valid_to < today() %}(<strong>истёк</strong>){% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted small">Допуски в порядке.</p>
+    {% endif %}
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('instructors_list') }}">Все допуски</a>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Бумажный режим</h2>
+  <p class="small">
+    Если нет компьютера, заранее напечатайте пустые бланки: у них общий код
+    <span class="mono">{{ manual_code }}</span>. После заполнения вручную внесите данные
+    через «Внести бумажный бланк» — коды на бланках одинаковые, поэтому документ
+    находится по работнику, виду и дате.
+  </p>
+  <div class="actions">
+    <a class="button secondary" href="{{ url_for('print_forms') }}?mode=blank">Печать пустых бланков</a>
+    <a class="button secondary" href="{{ url_for('manual_entry') }}">Внести бумажный</a>
+  </div>
+</div>
+{% endblock %}

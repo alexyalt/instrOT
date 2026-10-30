@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Инструктаж зарегистрирован{% endblock %}
+{% block content %}
+<h1>Инструктаж зарегистрирован</h1>
+
+<div class="flash flash-ok">
+  Запись сохранена в книге организации «{{ entry.name }}».
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">{{ training.fio }}</h2>
+  <p class="muted small">{{ training.type }} · факт {{ training.fact_date | ru_date }} ·
+     внесено {{ training.reg_date | ru_date }}</p>
+
+  <h3>Впишите номера в оригинал бланка</h3>
+  <table class="data">
+    <tbody>
+      <tr><th style="width:40%">Сквозной номер</th><td class="number-print">{{ training.number_ot }}</td></tr>
+      <tr><th>Номер по виду</th><td class="number-print">{{ training.number_type }}</td></tr>
+      <tr><th>Дело / пакет</th><td class="number-print">{{ training.case_id }} / {{ training.pack_id }}</td></tr>
+      <tr><th>Код бланка</th><td class="mono">{{ training.code | format_code }}</td></tr>
+      <tr><th>Куда подшить</th><td>{{ training.case_id }}, пакет {{ training.pack_id }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% if next_plan %}
+<div class="panel">
+  <h3 style="margin-top:0">Создан следующий повторный инструктаж</h3>
+  <p>Плановая дата: <strong>{{ next_plan.plan_date | ru_date }}</strong>,
+     код бланка <span class="mono">{{ next_plan.code | format_code }}</span>.</p>
+  <p class="muted small">
+    Дата рассчитана от фактического проведения с учётом периодичности. При необходимости
+    перенесите её вручную и зафиксируйте основание.
+  </p>
+</div>
+{% endif %}
+
+<div class="actions">
+  <a class="button" href="{{ url_for('register') }}">Зарегистрировать ещё</a>
+  <a class="button secondary" href="{{ url_for('dashboard') }}">К срокам</a>
+</div>
+{% endblock %}

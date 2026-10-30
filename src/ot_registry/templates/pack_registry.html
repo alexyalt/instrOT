@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Реестр пакета {{ pack_id }} - {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Реестр пакета {{ case_id }}-{{ pack_id }}</h1>
+
+<div class="panel">
+  <p class="muted small">
+    Документы пакета в порядке фактических дат. Этот реестр можно распечатать
+    и вложить в папку перед подшивкой.
+  </p>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>N</th><th>Номер ОТ</th><th>Номер по виду</th><th>Дата факта</th>
+            <th>Работник</th><th>Вид</th><th>Источник</th><th>Инструктирующий</th></tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td class="mono small">{{ row.number_ot }}</td>
+          <td class="mono small">{{ row.number_type }}</td>
+          <td class="small">{{ row.fact_date | ru_date }}</td>
+          <td class="small">{{ row.fio }}</td>
+          <td class="small">{{ row.type }}</td>
+          <td class="small">{{ row.source }}</td>
+          <td class="small">{{ row.instructor_fio or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small">Всего документов: <strong>{{ rows | length }}</strong></p>
+  {% else %}
+    <p class="muted">В пакете пока нет проведённых инструктажей.</p>
+  {% endif %}
+</div>
+
+<div class="actions">
+  <button onclick="window.print()" class="secondary">Печать реестра</button>
+  <a class="button secondary" href="{{ url_for('reports_page') }}">К отчётам</a>
+</div>
+{% endblock %}

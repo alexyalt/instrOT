@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Ошибка{% endblock %}
+{% block content %}
+<h1>Что-то пошло не так</h1>
+<div class="panel">
+  <p>{{ message }}</p>
+  <div class="actions">
+    <a class="button" href="{{ url_for('index') }}">На главную</a>
+  </div>
+</div>
+{% endblock %}
