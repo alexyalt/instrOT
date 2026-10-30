@@ -187,13 +187,22 @@ def _card_blank(doc: Document, org: dict[str, str], training_type: str) -> None:
     _footer_notes(doc, manual=True)
 
 
-def _new_doc() -> Document:
+def _new_doc(*, compact: bool = False) -> Document:
     doc = Document()
     section = doc.sections[0]
-    section.top_margin = Cm(1.2)
-    section.bottom_margin = Cm(1.0)
-    section.left_margin = Cm(1.8)
-    section.right_margin = Cm(1.2)
+    section.page_height = Cm(29.7)
+    section.page_width = Cm(21.0)
+    if compact:
+        # Для нескольких карточек на листе: узкие поля, больше места сверху.
+        section.top_margin = Cm(0.8)
+        section.bottom_margin = Cm(0.8)
+        section.left_margin = Cm(0.8)
+        section.right_margin = Cm(0.8)
+    else:
+        section.top_margin = Cm(1.2)
+        section.bottom_margin = Cm(1.0)
+        section.left_margin = Cm(1.8)
+        section.right_margin = Cm(1.2)
     style = doc.styles["Normal"]
     style.font.name = "Times New Roman"
     style.font.size = Pt(9)
@@ -304,3 +313,204 @@ def pending_numbers_report(book: Book, *, since: date | None = None) -> list[dic
             continue
         result.append(row)
     return sorted(result, key=lambda r: r.get("fact_date") or date.min, reverse=True)
+
+
+# --------------------------------------------------------------------------- #
+# Компактная печать: несколько карточек на одном листе A4
+# --------------------------------------------------------------------------- #
+
+def _merged_row(table, text: str, *, bold: bool = True, size: int = 8,
+                align=WD_ALIGN_PARAGRAPH.CENTER) -> None:
+    """Строка таблицы, объединённая по всей ширине."""
+    row = table.add_row()
+    cell = row.cells[0].merge(row.cells[1])
+    cell.text = ""
+    paragraph = cell.paragraphs[0]
+    paragraph.alignment = align
+    paragraph.paragraph_format.space_after = Pt(0)
+    paragraph.paragraph_format.space_before = Pt(0)
+    run = paragraph.add_run(text)
+    run.bold = bold
+    run.font.size = Pt(size)
+
+
+def _card_block(table, org: dict[str, str], *, title: str,
+                rows: list[tuple[str, str]], manual: bool,
+                condensed: bool = False) -> None:
+    """Одна карточка как блок строк в общей таблице листа.
+
+    Плоская таблица вместо вложенных: так документ корректно открывается
+    в Word и LibreOffice и предсказуемо печатается.
+    """
+    _merged_row(table, org["name"] or "Организация", bold=True, size=8)
+    _merged_row(table, title, bold=True, size=8.5)
+
+    for label, value in rows:
+        cell_row = table.add_row().cells
+        _set_cell(cell_row[0], label, size=7)
+        _set_cell(cell_row[1], value, bold=True, size=7)
+        cell_row[0].width = Cm(3.6)
+        cell_row[1].width = Cm(5.4)
+
+    for who in ("Провёл", "Получил"):
+        cell_row = table.add_row().cells
+        _set_cell(cell_row[0], who, size=7)
+        _set_cell(cell_row[1], "подпись ____________________", size=7)
+
+    note_text = (
+        "Код 000-000 — ручное заполнение вне системы, код не является номером"
+        if manual else
+        "Код бланка служит для поиска записи; номера вписываются после регистрации"
+    )
+    if condensed:
+        return
+    row = table.add_row()
+    cell = row.cells[0].merge(row.cells[1])
+    cell.text = ""
+    paragraph = cell.paragraphs[0]
+    paragraph.paragraph_format.space_after = Pt(0)
+    run = paragraph.add_run(note_text)
+    run.italic = True
+    run.font.size = Pt(6)
+    run.font.color.rgb = RGBColor(0x70, 0x70, 0x70)
+
+
+def _filled_rows(row: dict[str, Any]) -> list[tuple[str, str]]:
+    plan_date = row.get("plan_date")
+    birth = row.get("birth_date")
+    return [
+        ("ФИО", str(row.get("fio") or "")),
+        ("Должность", str(row.get("position") or "")),
+        ("Подразделение", str(row.get("department") or "")),
+        ("Дата рождения", birth.strftime("%d.%m.%Y") if isinstance(birth, date) else ""),
+        ("Вид", str(row.get("type") or "")),
+        ("ЛНА / программа", str(row.get("program") or "")),
+        ("Дата проведения", "____ . ____ . 20____"),
+        ("Инструктирующий", str(row.get("instructor_fio") or "")),
+        ("Код бланка", format_code(str(row.get("code") or ""))),
+        ("Номера", "ОТ ______ / ______ / Д _____ П _____"),
+    ]
+
+
+def _filled_rows_condensed(row: dict[str, Any]) -> list[tuple[str, str]]:
+    """Сокращённый набор полей для 4–5 карточек на лист.
+
+    Объединяет должность и подразделение, убирает примечание. Обязательные
+    реквизиты по пп. 86–87 остаются на месте.
+    """
+    birth = row.get("birth_date")
+    position = str(row.get("position") or "")
+    department = str(row.get("department") or "")
+    combined = " / ".join(part for part in (position, department) if part)
+    return [
+        ("ФИО", str(row.get("fio") or "")),
+        ("Должность / подразд.", combined),
+        ("Дата рождения", birth.strftime("%d.%m.%Y") if isinstance(birth, date) else ""),
+        ("Вид", str(row.get("type") or "")),
+        ("ЛНА / программа", str(row.get("program") or "")),
+        ("Дата проведения", "____ . ____ . 20____"),
+        ("Инструктирующий", str(row.get("instructor_fio") or "")),
+        ("Код бланка", format_code(str(row.get("code") or ""))),
+        ("Номера", "ОТ ______ / ______ / Д _____ П _____"),
+    ]
+
+
+def _blank_rows_condensed(training_type: str) -> list[tuple[str, str]]:
+    return [
+        ("ФИО", ""),
+        ("Должность / подразд.", ""),
+        ("Дата рождения", "____ . ____ . ________"),
+        ("Вид", training_type),
+        ("ЛНА / программа", ""),
+        ("Дата проведения", "____ . ____ . 20____"),
+        ("Инструктирующий", ""),
+        ("Код бланка", config.MANUAL_CODE_DISPLAY),
+        ("Номера", "ОТ ______ / ______ / Д _____ П _____"),
+    ]
+
+
+def _blank_rows(training_type: str) -> list[tuple[str, str]]:
+    return [
+        ("ФИО", ""),
+        ("Должность", ""),
+        ("Подразделение", ""),
+        ("Дата рождения", "____ . ____ . ________"),
+        ("Вид", training_type),
+        ("ЛНА / программа", ""),
+        ("Дата проведения", "____ . ____ . 20____"),
+        ("Инструктирующий", ""),
+        ("Код бланка", config.MANUAL_CODE_DISPLAY),
+        ("Номера", "ОТ ______ / ______ / Д _____ П _____"),
+    ]
+
+
+def _render_grid(doc: Document, cards: list[tuple[str, list[tuple[str, str]], bool]],
+                 org: dict[str, str], *, per_page: int) -> None:
+    """Разместить карточки: `per_page` штук на страницу, каждая — блок строк."""
+    per_page = max(1, min(per_page, config.MAX_CARDS_PER_PAGE))
+    index = 0
+    while index < len(cards):
+        chunk = cards[index:index + per_page]
+        table = doc.add_table(rows=0, cols=2)
+        table.style = "Table Grid"
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        condensed = per_page >= 4
+        for position, (title, rows, manual) in enumerate(chunk):
+            if position:
+                # Визуальный разделитель между карточками на одном листе.
+                spacer = table.add_row()
+                spacer.cells[0].merge(spacer.cells[1])
+            _card_block(table, org, title=title, rows=rows, manual=manual,
+                        condensed=condensed)
+        index += per_page
+        if index < len(cards):
+            doc.add_page_break()
+
+
+def print_filled_grid(book: Book, training_ids: Iterable[str], *,
+                      per_page: int = 2) -> PrintResult:
+    """Печать заполненных карточек по несколько на лист A4."""
+    ids = [i for i in training_ids if i]
+    if not ids:
+        raise ValidationError("Выберите хотя бы одну запись для печати.")
+    rows = [r for r in book.table("Инструктажи").rows if str(r.get("id") or "") in set(ids)]
+    if not rows:
+        raise ValidationError("Выбранные записи не найдены в книге.")
+
+    org = _org(book)
+    doc = _new_doc(compact=per_page > 1)
+    builder = _filled_rows_condensed if per_page >= 4 else _filled_rows
+    cards = [
+        (f"Инструктаж по охране труда: {row.get('type') or ''}", builder(row), False)
+        for row in rows
+    ]
+    _render_grid(doc, cards, org, per_page=per_page)
+    result = _finish(doc, book, prefix="filled_grid", cards=len(rows))
+    from .journal import log_event
+
+    log_event(book.logs_dir(), organization=book.name, action="print_filled",
+              entity="Инструктажи",
+              details={"ids": ids, "cards": len(rows), "per_page": per_page})
+    return result
+
+
+def print_blank_grid(book: Book, *, training_type: str, count: int = 1,
+                     per_page: int = 2) -> PrintResult:
+    """Печать пустых бланков по несколько на лист A4."""
+    if training_type not in config.TRAINING_TYPES:
+        raise ValidationError("Выберите вид инструктажа для пустых бланков.")
+    count = max(1, min(int(count or 1), 50))
+
+    org = _org(book)
+    doc = _new_doc(compact=per_page > 1)
+    builder2 = _blank_rows_condensed if per_page >= 4 else _blank_rows
+    cards = [(f"Инструктаж: {training_type}", builder2(training_type), True)] * count
+    _render_grid(doc, cards, org, per_page=per_page)
+    safe_type = "".join(ch for ch in training_type if ch.isalnum()) or "blank"
+    result = _finish(doc, book, prefix=f"blank_grid_{safe_type}", cards=count)
+    from .journal import log_event
+
+    log_event(book.logs_dir(), organization=book.name, action="print_blank",
+              entity="Печать",
+              details={"type": training_type, "count": count, "per_page": per_page})
+    return result

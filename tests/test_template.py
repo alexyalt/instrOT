@@ -253,3 +253,63 @@ class TestMakeExcelScript:
         assert module.main(["--no-protect", "--out", str(out)]) == 0
         wb = load_workbook(out)
         assert not wb["Инструктажи"].protection.sheet
+
+
+class TestCompactPrinting:
+    """Печать по несколько карточек на лист A4."""
+
+    @pytest.fixture()
+    def demo(self, tmp_path):
+        return excel_store.create_book(
+            tmp_path / "p" / "registry.xlsx", data_dir=tmp_path / "p",
+            name="ООО Тест", with_demo_data=True,
+        )
+
+    def test_grid_puts_requested_cards_per_page(self, demo):
+        from docx import Document
+
+        from ot_registry import printing
+
+        ids = [r["id"] for r in demo.table("Инструктажи").rows][:5]
+        result = printing.print_filled_grid(demo, ids, per_page=5)
+        doc = Document(result.docx_path)
+        assert result.cards == 5
+        # 5 карточек на страницу — одна таблица-сетка
+        assert len(doc.tables) == 1
+
+    def test_grid_respects_limit(self, demo):
+        from ot_registry import printing
+
+        ids = [r["id"] for r in demo.table("Инструктажи").rows][:3]
+        result = printing.print_filled_grid(demo, ids, per_page=99)
+        assert result.cards == 3
+
+    def test_blank_grid_contains_manual_code(self, demo):
+        from docx import Document
+
+        from ot_registry import printing
+
+        result = printing.print_blank_grid(demo, training_type="Повторный", count=4, per_page=2)
+        doc = Document(result.docx_path)
+        text = " ".join(c.text for t in doc.tables for row in t.rows for c in row.cells)
+        assert "000-000" in text
+        assert result.cards == 4
+
+    def test_grid_rejects_empty_selection(self, demo):
+        from ot_registry import printing
+        from ot_registry.errors import ValidationError
+
+        with pytest.raises(ValidationError):
+            printing.print_filled_grid(demo, [])
+
+    def test_grid_contains_required_fields(self, demo):
+        from docx import Document
+
+        from ot_registry import printing
+
+        row = demo.table("Инструктажи").rows[0]
+        result = printing.print_filled_grid(demo, [row["id"]], per_page=2)
+        doc = Document(result.docx_path)
+        text = " ".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
+        for marker in ("ФИО", "Должность", "Дата рождения", "ЛНА", "подпись"):
+            assert marker in text, marker

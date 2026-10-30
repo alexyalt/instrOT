@@ -741,6 +741,12 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
                                    rows=planned_rows, result=None, mode="filled")
 
         mode = request.form.get("mode", "filled")
+        try:
+            per_page = int(request.form.get("per_page") or config.CARDS_PER_PAGE)
+        except ValueError:
+            per_page = config.CARDS_PER_PAGE
+        per_page = max(1, min(per_page, config.MAX_CARDS_PER_PAGE))
+
         if mode == "blank":
             training_type = request.form.get("type", "")
             count = request.form.get("count", "1")
@@ -748,11 +754,13 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
                 count_int = int(count)
             except ValueError:
                 count_int = 1
-            result, error = safe(printing.print_blank, book, training_type=training_type,
-                                 count=count_int)
+            result, error = safe(
+                printing.print_blank_grid, book,
+                training_type=training_type, count=count_int, per_page=per_page,
+            )
         else:
             ids = request.form.getlist("training_ids")
-            result, error = safe(printing.print_filled, book, ids)
+            result, error = safe(printing.print_filled_grid, book, ids, per_page=per_page)
 
         if error:
             summary = _book_summary(book)
