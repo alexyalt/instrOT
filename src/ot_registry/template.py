@@ -396,10 +396,13 @@ def protect_workbook(wb, password: str) -> None:
 
 
 def unprotect_workbook(wb) -> None:
-    """Снять защиту со всех листов и структуры (для ручного режима)."""
+    """Снять защиту со всех листов и структуры (для ручного режима).
+
+    Пароль листа не сбрасывается в None: openpyxl пытается хешировать
+    значение и падает. Достаточно выключить сам флаг защиты.
+    """
     for ws in wb.worksheets:
         ws.protection.sheet = False
-        ws.protection.password = None
     wb.security = WorkbookProtection(lockStructure=False)
 
 
