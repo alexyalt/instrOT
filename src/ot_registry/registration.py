@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from . import config, deadlines, validation
+from . import config, deadlines, rules, validation
 from .errors import ConflictError, NotFoundError, ValidationError
 from .excel_store import Book, new_id, save_book
 from .services import (
@@ -152,7 +152,8 @@ def _maybe_plan_repeat(book: Book, row: dict[str, Any]) -> dict[str, Any] | None
     fact_date = row.get("fact_date")
     if not fact_date:
         return None
-    next_date = deadlines.next_repeat_date(fact_date, _period_for_worker(book, str(row.get("worker_id") or "")))
+    period = _period_for_worker(book, str(row.get("worker_id") or ""))
+    next_date = rules.next_repeat(fact_date, organization_period=period)
     existing = [
         t for t in planned(book)
         if t.get("worker_id") == row.get("worker_id") and t.get("type") == "Повторный"

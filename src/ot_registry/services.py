@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Iterable
 
-from . import config, deadlines
+from . import config, deadlines, rules
 from .errors import ConflictError, NotFoundError, ValidationError
 from .excel_store import Book, new_id, save_book
 from .schema import ORG_KEY
@@ -22,6 +22,14 @@ from . import validation
 # --------------------------------------------------------------------------- #
 # Справочные выборки
 # --------------------------------------------------------------------------- #
+
+def _org_period(book: Book) -> int:
+    raw = book.org_value("default_period", str(config.DEFAULT_PERIOD_MONTHS))
+    try:
+        return int(raw or config.DEFAULT_PERIOD_MONTHS)
+    except ValueError:
+        return config.DEFAULT_PERIOD_MONTHS
+
 
 
 def workers(book: Book, *, only_active: bool = True) -> list[dict[str, Any]]:
@@ -284,6 +292,15 @@ def plan_training(book: Book, data: dict[str, Any], *, repeat_from: dict[str, An
             "Срок действия допуска инструктирующего истекает раньше плановой даты.",
             fields={"instructor_id": "Выберите инструктирующего с действующим допуском."},
         )
+
+    if clean["type"] == "Повторный":
+        rule = rules.period_rule("Повторный", organization_period=_org_period(book))
+        if rule.note and not str(data.get("period_basis") or "").strip():
+            raise ValidationError(
+                rule.note,
+                fields={"type": "Укажите основание для периодичности больше 6 месяцев "
+                                 "или используйте срок не реже 1 раза в 6 месяцев."},
+            )
 
     duplicates = [
         t for t in planned(book)
