@@ -119,31 +119,14 @@
 </div>
 
 <div class="panel">
-  <h2 style="margin-top:0">Пакеты документов</h2>
-  {% if packs %}
-  <div class="table-wrap">
-    <table class="data">
-      <thead><tr><th>Дело</th><th>Пакет</th><th>Вид</th><th>Документов</th><th>Статус</th><th>Закрыт</th><th></th></tr></thead>
-      <tbody>
-        {% for row in packs %}
-        <tr>
-          <td class="mono small">{{ row.case_id }}</td>
-          <td class="mono small">{{ row.pack_id }}</td>
-          <td class="small">{{ row.type }}</td>
-          <td>{{ row.documents }}</td>
-          <td>
-            {% if row.status == 'Открыт' %}<span class="badge badge-warn">Открыт</span>
-            {% else %}<span class="badge">Закрыт</span>{% endif %}
-          </td>
-          <td class="small">{{ row.closed_at | ru_date or '-' }}</td>
-          <td><a class="small" href="{{ url_for('pack_registry', case_id=row.case_id, pack_id=row.pack_id) }}">Реестр</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <h2 style="margin-top:0">Архив</h2>
+  <p class="small muted">
+    Дела и пакеты документов перенесены в отдельный раздел — там же количество
+    зарегистрированных документов внутри пакета и реестр для печати.
+  </p>
+  <div class="actions">
+    <a class="button secondary" href="{{ url_for('archive') }}">Открыть архив</a>
   </div>
-  {% else %}
-    <p class="muted">Пакеты появятся после регистрации проведённых инструктажей.</p>
-  {% endif %}
 </div>
+
 {% endblock %}

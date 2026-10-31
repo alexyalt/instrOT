@@ -1128,12 +1128,26 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
 
     @app.get("/archive")
     def archive():
+        """Архив: дела и пакеты с количеством документов внутри."""
         cat, entry = require_org()
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        return render_template("archive.html", entry=entry, book=book,
-                               rows=book.table("Архив").rows)
+
+        # По умолчанию — только открытые: закрытые пакеты нужны реже.
+        show_closed = request.args.get("closed") == "1"
+        rows = reports.pack_rows(book)
+        if not show_closed:
+            rows = [r for r in rows if str(r.get("status") or "") == "Открыт"]
+
+        cases = reports.case_rows(book)
+        open_count = len([r for r in reports.pack_rows(book) if r.get("status") == "Открыт"])
+        closed_count = len([r for r in reports.pack_rows(book) if r.get("status") == "Закрыт"])
+
+        return render_template(
+            "archive.html", entry=entry, book=book, rows=rows, cases=cases,
+            show_closed=show_closed, open_count=open_count, closed_count=closed_count,
+        )
 
     @app.post("/archive/close-pack")
     def close_pack():
