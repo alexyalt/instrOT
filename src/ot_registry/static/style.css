@@ -307,3 +307,23 @@ ul.errors { margin: 6px 0 0; padding-left: 18px; color: var(--danger); font-size
   .content { padding: 0; max-width: none; }
   .panel { border: none; padding: 0; }
 }
+
+/* Блок инструктирующего: выделен фоном, чтобы выделялся среди полей */
+.instructor-block {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #eef1f4;
+  border-left: 4px solid var(--accent);
+}
+
+.instructor-name {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.instructor-program {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}

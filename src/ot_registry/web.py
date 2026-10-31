@@ -650,9 +650,13 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
                 instructors=services.instructors(book, on=config.today()),
                 fact_date=payload["fact_date"],
             )
+        trainer = services.instructor_by_id(
+            book, str(result["training"].get("instructor_id") or "")
+        )
         return render_template(
             "register_done.html", entry=entry, book=book,
             training=result["training"], next_plan=result.get("next_plan"),
+            instructor_position=str((trainer or {}).get("program") or ""),
         )
 
     @app.route("/manual", methods=["GET", "POST"])
