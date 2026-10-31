@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}Изменить инструкцию{% else %}Новая инструкция{% endif %} — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>{% if row %}Изменить инструкцию{% else %}Новая инструкция или программа{% endif %}</h1>
+
+{% if message %}<div class="flash flash-error">{{ message }}</div>{% endif %}
+
+{% set v = row or form %}
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <div class="grid grid-2">
+    <div class="field">
+      <label for="number">Номер инструкции</label>
+      <input type="text" id="number" name="number"
+             value="{{ v.number if row else (form.number or '') }}"
+             placeholder="например: ИОТ-001">
+      <div class="hint">Номер по вашему перечню. Может быть пустым.</div>
+    </div>
+
+    <div class="field {% if errors.title %}field-error{% endif %}">
+      <label for="title">Название *</label>
+      <input type="text" id="title" name="title" required
+             value="{{ v.title if row else (form.title or '') }}"
+             placeholder="Инструкция по охране труда для дворника">
+      {% if errors.title %}<div class="error-text">{{ errors.title }}</div>{% endif %}
+      <div class="hint">Это наименование печатается в бланке как ЛНА.</div>
+    </div>
+
+    <div class="field">
+      <label for="approved_by">Утверждено приказом</label>
+      <input type="text" id="approved_by" name="approved_by"
+             value="{{ v.approved_by if row else (form.approved_by or '') }}"
+             placeholder="приказ № 12 от 15.01.2025">
+    </div>
+
+    <div class="field {% if errors.approved_at %}field-error{% endif %}">
+      <label for="approved_at">Дата утверждения</label>
+      <input type="date" id="approved_at" name="approved_at"
+             value="{% if row and row.approved_at %}{{ row.approved_at.isoformat() }}{% else %}{{ form.approved_at or '' }}{% endif %}">
+      {% if errors.approved_at %}<div class="error-text">{{ errors.approved_at }}</div>{% endif %}
+    </div>
+
+    <div class="field">
+      <label for="status">Состояние</label>
+      <select id="status" name="status">
+        <option value="Действует"
+          {% if (row and row.status == 'Действует') or (not row and form.status != 'Не действует') %}selected{% endif %}>
+          Действует
+        </option>
+        <option value="Не действует"
+          {% if (row and row.status == 'Не действует') or (not row and form.status == 'Не действует') %}selected{% endif %}>
+          Не действует
+        </option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="replaced_by">Заменено на</label>
+      <input type="text" id="replaced_by" name="replaced_by"
+             value="{{ v.replaced_by if row else (form.replaced_by or '') }}"
+             placeholder="ИОТ-015">
+      <div class="hint">Заполняется, если инструкция заменена новой.</div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="description">Краткое описание</label>
+    <input type="text" id="description" name="description"
+           value="{{ v.description if row else (form.description or '') }}"
+           placeholder="для кого и о чём инструкция">
+  </div>
+
+  <div class="field">
+    <label for="note">Примечание</label>
+    <input type="text" id="note" name="note"
+           value="{{ v.note if row else (form.note or '') }}">
+  </div>
+
+  <div class="actions">
+    <button type="submit">{% if row %}Сохранить{% else %}Добавить{% endif %}</button>
+    <a class="button secondary" href="{{ url_for('programs_list') }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}

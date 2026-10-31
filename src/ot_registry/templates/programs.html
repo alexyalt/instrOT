@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Инструкции и программы — {{ entry.name }}{% endblock %}
+{% block content %}
+<div class="page-head row" style="justify-content:space-between;align-items:center">
+  <div>
+    <h1 style="margin:0">Инструкции и программы по охране труда</h1>
+    <p class="muted small" style="margin:4px 0 0">
+      Наименование локального акта — обязательный реквизит инструктажа
+      (пп. 86–87 Правил № 2464). Здесь ведётся их список с номером,
+      приказом утверждения и состоянием.
+    </p>
+  </div>
+  <div class="actions" style="margin:0">
+    <a class="button" href="{{ url_for('program_new') }}">Добавить инструкцию</a>
+  </div>
+</div>
+
+<div class="panel panel-tight">
+  <form method="get" class="row">
+    <div class="field">
+      <label for="q">Поиск по номеру, названию, приказу</label>
+      <input type="text" id="q" name="q" value="{{ search }}" autocomplete="off">
+    </div>
+    <div class="field" style="flex:0 0 260px">
+      <label class="checkbox-row" style="margin-top:8px">
+        <input type="checkbox" name="all" value="1" {% if show_all %}checked{% endif %}
+               onchange="this.form.submit()">
+        <span>Показывать недействующие</span>
+      </label>
+      <div class="hint">Действующих: {{ active_count }}</div>
+    </div>
+    <div class="field" style="flex:0 0 auto"><button type="submit">Показать</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Номер</th><th>Название</th><th>Описание</th>
+          <th>Утверждено</th><th>Дата</th><th>Состояние</th>
+          <th data-sortable="off">Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{% if r.status == 'Не действует' %}due-none{% endif %}">
+          <td class="mono small">{{ r.number or '—' }}</td>
+          <td>{{ r.title }}</td>
+          <td class="small muted">{{ r.description or '—' }}</td>
+          <td class="small">{{ r.approved_by or '—' }}</td>
+          <td class="small">{{ r.approved_at | ru_date or '—' }}</td>
+          <td>
+            {% if r.status == 'Действует' %}
+              <span class="badge badge-ok">Действует</span>
+            {% else %}
+              <span class="badge">Не действует</span>
+              {% if r.replaced_by %}<div class="small muted">заменено: {{ r.replaced_by }}</div>{% endif %}
+            {% endif %}
+          </td>
+          <td class="small">
+            <a href="{{ url_for('program_edit', program_id=r.id) }}">Изменить</a>
+            {% if r.status == 'Действует' %}
+              <details style="margin-top:6px">
+                <summary class="small" style="cursor:pointer;color:var(--warn)">Не действует</summary>
+                <form method="post" action="{{ url_for('program_deactivate', program_id=r.id) }}"
+                      data-once style="margin-top:8px;min-width:240px">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <div class="field">
+                    <label for="pr_reason_{{ loop.index }}">Причина *</label>
+                    <input type="text" id="pr_reason_{{ loop.index }}" name="reason" required
+                           placeholder="например: заменена приказом № 40">
+                  </div>
+                  <button type="submit" style="padding:5px 12px;font-size:12px">Подтвердить</button>
+                </form>
+              </details>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small" style="margin-top:10px">
+    Недействующие инструкции скрыты из подсказок при планировании, но остаются
+    в книге: на них ссылаются уже проведённые инструктажи.
+  </p>
+  {% else %}
+    <p class="muted">
+      Инструкций пока нет. Добавьте хотя бы одну — без наименования ЛНА
+      инструктаж нельзя оформить.
+    </p>
+  {% endif %}
+</div>
+{% endblock %}

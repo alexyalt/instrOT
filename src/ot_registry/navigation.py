@@ -26,7 +26,8 @@ NAV_ITEMS: tuple[NavItem, ...] = (
     NavItem("manual", "manual_entry", "Внести бумажный", "бланки, заполненные вручную"),
     NavItem("print", "print_forms", "Печать", "заполненные и пустые бланки"),
     NavItem("workers", "workers_list", "Работники", "список сотрудников"),
-    NavItem("instructors", "instructors_list", "Инструктирующие", "допуски и программы"),
+    NavItem("programs", "programs_list", "Инструкции", "ЛНА, программы и их утверждение"),
+    NavItem("instructors", "instructors_list", "Инструктирующие", "допуски по программам"),
     NavItem("reports", "reports_page", "Отчёты", "контроль и сводки"),
     NavItem("archive", "archive", "Архив", "дела и пакеты документов"),
     NavItem("excel", "excel_page", "Excel и резерв", "ручной режим, копии, защита"),
@@ -86,7 +87,11 @@ def active_key(request) -> str:
     # Разделы без собственной закладки подсвечивают близкий по смыслу.
     related = {
         "training_edit": "trainings",
-        "pack_registry": "reports",
+        "pack_registry": "archive",
+        "program_new": "programs",
+        "program_edit": "programs",
+        "instructor_new": "instructors",
+        "instructor_detail": "instructors",
         "journal_view": "excel",
         "org_new": "settings",
         "connect_org": "settings",

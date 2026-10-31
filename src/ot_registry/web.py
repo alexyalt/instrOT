@@ -722,16 +722,56 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        return render_template("instructors.html", entry=entry, book=book,
-                               rows=services.instructors(book, on=None),
-                               dicts=services.dictionaries(book))
 
-    @app.post("/instructors/new")
+        state = request.args.get("state", "active")
+        search = (request.args.get("q") or "").strip().lower()
+        include_revoked = state in ("all", "revoked")
+        rows = services.instructors(book, include_revoked=include_revoked)
+        if state == "revoked":
+            rows = [r for r in rows if str(r.get("status") or "") == "Аннулирован"]
+        if search:
+            rows = [
+                r for r in rows
+                if search in " ".join(
+                    str(r.get(k) or "") for k in ("fio", "position", "program", "types")
+                ).lower()
+            ]
+
+        deputy_names = {}
+        for row in book.table("Инструктирующие").rows:
+            deputy_id = str(row.get("deputy_id") or "")
+            if deputy_id:
+                deputy = book.table("Инструктирующие").by_key("id", deputy_id)
+                if deputy:
+                    deputy_names[str(row.get("id"))] = f"{deputy.get('fio')}"
+
+        return render_template(
+            "instructors.html", entry=entry, book=book, rows=rows,
+            state=state, search=search,
+            deputy_names=deputy_names,
+            revoke_reasons=services.instructor_revoke_reasons(book),
+            without_deputy=services.instructors_without_deputy(book) if state == "active" else [],
+            dicts=services.dictionaries(book),
+            warning=request.args.get("warning", ""),
+        )
+
+    @app.route("/instructors/new", methods=["GET", "POST"])
     def instructor_new():
         cat, entry = require_org()
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
+
+        dicts = services.dictionaries(book)
+        program_rows = services.programs(book)
+        people = services.instructors(book, include_revoked=True)
+
+        if request.method == "GET":
+            return render_template(
+                "instructor_new.html", entry=entry, book=book, dicts=dicts,
+                programs=program_rows, people=people, form={}, errors={}, message="",
+            )
+
         form = request.form.to_dict()
         data = {
             "fio": form.get("fio", ""),
@@ -746,12 +786,172 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             data["valid_from"] = _parse_date(form.get("valid_from"))
             data["valid_to"] = _parse_date(form.get("valid_to"))
         except ValidationError as exc:
-            flash(exc.message, "error")
-            return redirect(url_for("instructors_list"))
-        _, error = safe(services.add_instructor, book, data)
-        flash("Допуск добавлен." if not error else error["message"],
+            return render_template(
+                "instructor_new.html", entry=entry, book=book, dicts=dicts,
+                programs=program_rows, people=people, form=form,
+                errors={"valid_to": exc.message}, message="",
+            )
+        row, error = safe(services.add_instructor, book, data)
+        if error:
+            return render_template(
+                "instructor_new.html", entry=entry, book=book, dicts=dicts,
+                programs=program_rows, people=people, form=form,
+                errors=error["fields"], message=error["message"],
+                details=error.get("details"),
+            )
+        flash(f"Допуск добавлен: {row['fio']}.", "ok")
+        return redirect(url_for("instructors_list"))
+
+    @app.post("/instructors/<row_id>/revoke")
+    def instructor_revoke(row_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        try:
+            revoke_date = _parse_date(form.get("revoke_date")) or config.today()
+        except ValidationError:
+            revoke_date = config.today()
+        _, error = safe(services.revoke_instructor, book, row_id,
+                        reason=form.get("reason", ""), revoke_date=revoke_date)
+        flash("Допуск аннулирован." if not error else error["message"],
               "ok" if not error else "error")
         return redirect(url_for("instructors_list"))
+
+    @app.post("/instructors/<row_id>/restore")
+    def instructor_restore(row_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        _, error = safe(services.restore_instructor, book, row_id)
+        flash("Допуск восстановлен." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("instructors_list", state="all"))
+
+    @app.post("/instructors/<row_id>/deputy")
+    def instructor_deputy(row_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        _, error = safe(services.set_deputy, book, row_id, form.get("deputy_id", ""))
+        flash("Заместитель назначен." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("instructors_list"))
+
+    # -- инструкции и программы -------------------------------------------
+    @app.get("/programs")
+    def programs_list():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        show_all = request.args.get("all") == "1"
+        search = (request.args.get("q") or "").strip().lower()
+        rows = services.programs(book, only_active=not show_all)
+        if search:
+            rows = [
+                r for r in rows
+                if search in " ".join(
+                    str(r.get(k) or "") for k in ("number", "title", "description", "approved_by")
+                ).lower()
+            ]
+        return render_template(
+            "programs.html", entry=entry, book=book, rows=rows,
+            show_all=show_all, search=search,
+            active_count=len(services.programs(book)),
+        )
+
+    @app.route("/programs/new", methods=["GET", "POST"])
+    def program_new():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+
+        if request.method == "GET":
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form={}, errors={}, message="", row=None)
+
+        form = request.form.to_dict()
+        data = {
+            "number": form.get("number", ""),
+            "title": form.get("title", ""),
+            "description": form.get("description", ""),
+            "approved_by": form.get("approved_by", ""),
+            "approved_at": None,
+            "status": form.get("status", "Действует"),
+            "replaced_by": form.get("replaced_by", ""),
+            "note": form.get("note", ""),
+        }
+        try:
+            data["approved_at"] = _parse_date(form.get("approved_at"))
+        except ValidationError as exc:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors={"approved_at": exc.message},
+                                   message="", row=None)
+        row, error = safe(services.add_program, book, data)
+        if error:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors=error["fields"],
+                                   message=error["message"], row=None)
+        flash("Инструкция добавлена.", "ok")
+        return redirect(url_for("programs_list"))
+
+    @app.route("/programs/<program_id>/edit", methods=["GET", "POST"])
+    def program_edit(program_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        row = book.table("Инструкции").by_key("id", program_id)
+        if row is None:
+            flash("Инструкция не найдена.", "error")
+            return redirect(url_for("programs_list"))
+
+        if request.method == "GET":
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form={}, errors={}, message="", row=row)
+
+        form = request.form.to_dict()
+        data = {
+            "number": form.get("number", ""),
+            "title": form.get("title", ""),
+            "description": form.get("description", ""),
+            "approved_by": form.get("approved_by", ""),
+            "approved_at": None,
+            "status": form.get("status", "Действует"),
+            "replaced_by": form.get("replaced_by", ""),
+            "note": form.get("note", ""),
+        }
+        try:
+            data["approved_at"] = _parse_date(form.get("approved_at"))
+        except ValidationError as exc:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors={"approved_at": exc.message},
+                                   message="", row=row)
+        _, error = safe(services.update_program, book, program_id, data)
+        if error:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors=error["fields"],
+                                   message=error["message"], row=row)
+        flash("Изменения сохранены.", "ok")
+        return redirect(url_for("programs_list"))
+
+    @app.post("/programs/<program_id>/deactivate")
+    def program_deactivate(program_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        _, error = safe(services.deactivate_program, book, program_id,
+                        reason=request.form.get("reason", ""))
+        flash("Инструкция переведена в состояние «Не действует»." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("programs_list"))
 
     @app.route("/print", methods=["GET", "POST"])
     def print_forms():
