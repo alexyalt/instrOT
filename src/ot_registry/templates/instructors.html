@@ -1,23 +1,55 @@
 {% extends "base.html" %}
 {% block title %}Инструктирующие — {{ entry.name }}{% endblock %}
 {% block content %}
-<h1>Инструктирующие и допуски</h1>
-<p class="muted">
-  Один человек может иметь несколько программ — это отдельные строки допусков.
-  Даты действия проверяются при планировании и регистрации.
-</p>
+<div class="page-head row" style="justify-content:space-between;align-items:center">
+  <div>
+    <h1 style="margin:0">Инструктирующие и допуски</h1>
+    <p class="muted small" style="margin:4px 0 0">
+      Один человек может иметь несколько программ — это отдельные строки допусков.
+      Допуск уволенного работника действовать не может.
+    </p>
+  </div>
+  <div class="actions" style="margin:0">
+    <a class="button" href="{{ url_for('instructor_new') }}">Добавить допуск</a>
+  </div>
+</div>
+
+{% if warning %}
+<div class="flash flash-info">{{ warning }}</div>
+{% endif %}
+
+<div class="panel panel-tight">
+  <form method="get" class="row">
+    <div class="field">
+      <label for="q">Поиск по ФИО, должности, программе</label>
+      <input type="text" id="q" name="q" value="{{ search }}" autocomplete="off">
+    </div>
+    <div class="field" style="flex:0 0 230px">
+      <label for="state">Состояние допусков</label>
+      <select id="state" name="state">
+        <option value="active" {% if state == 'active' %}selected{% endif %}>Действующие</option>
+        <option value="revoked" {% if state == 'revoked' %}selected{% endif %}>Аннулированные</option>
+        <option value="all" {% if state == 'all' %}selected{% endif %}>Все</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0 0 auto"><button type="submit">Показать</button></div>
+  </form>
+</div>
 
 <div class="panel">
   {% if rows %}
   <div class="table-wrap">
     <table class="data">
       <thead>
-        <tr><th>ФИО</th><th>Должность</th><th>Программа / основание</th>
-            <th>Виды</th><th>Действует с</th><th>Действует по</th><th>Состояние</th></tr>
+        <tr>
+          <th>ФИО</th><th>Должность</th><th>Программа / основание</th><th>Виды</th>
+          <th>Действует с</th><th>Действует по</th><th>Состояние</th>
+          <th data-sortable="off">Заместитель</th><th data-sortable="off">Действия</th>
+        </tr>
       </thead>
       <tbody>
         {% for r in rows %}
-        <tr>
+        <tr class="{% if r.status == 'Аннулирован' %}due-none{% elif r.valid_to and r.valid_to < today() %}due-overdue{% endif %}">
           <td>{{ r.fio }}</td>
           <td class="small">{{ r.position or '—' }}</td>
           <td class="small">{{ r.program or '—' }}</td>
@@ -25,7 +57,10 @@
           <td class="small">{{ r.valid_from | ru_date or '—' }}</td>
           <td class="small">{{ r.valid_to | ru_date or 'бессрочно' }}</td>
           <td>
-            {% if r.valid_to and r.valid_to < today() %}
+            {% if r.status == 'Аннулирован' %}
+              <span class="badge badge-danger">Аннулирован</span>
+              {% if r.revoke_reason %}<div class="small muted">{{ r.revoke_reason }}</div>{% endif %}
+            {% elif r.valid_to and r.valid_to < today() %}
               <span class="badge badge-danger">истёк</span>
             {% elif r.valid_to %}
               <span class="badge badge-ok">действует</span>
@@ -33,57 +68,71 @@
               <span class="badge">без срока</span>
             {% endif %}
           </td>
+          <td class="small">
+            {{ deputy_names.get(r.id) or '—' }}
+            {% if not deputy_names.get(r.id) and r.status != 'Аннулирован' %}
+              <div class="small" style="color:var(--warn)">не назначен</div>
+            {% endif %}
+          </td>
+          <td class="small">
+            {% if r.status == 'Аннулирован' %}
+              <form method="post" action="{{ url_for('instructor_restore', row_id=r.id) }}"
+                    class="inline" data-once>
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button type="submit" class="ghost" style="padding:0;font-size:12px">Восстановить</button>
+              </form>
+            {% else %}
+              <details>
+                <summary class="small" style="cursor:pointer;color:var(--danger)">Аннулировать</summary>
+                <form method="post" action="{{ url_for('instructor_revoke', row_id=r.id) }}"
+                      data-once style="margin-top:8px;min-width:240px">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <div class="field">
+                    <label for="reason_{{ loop.index }}">Причина *</label>
+                    <input type="text" id="reason_{{ loop.index }}" name="reason" required
+                           list="revoke_reasons" placeholder="например: увольнение">
+                  </div>
+                  <div class="field">
+                    <label for="date_{{ loop.index }}">Дата</label>
+                    <input type="date" id="date_{{ loop.index }}" name="revoke_date"
+                           value="{{ today().isoformat() }}">
+                  </div>
+                  <button type="submit" class="danger" style="padding:5px 12px;font-size:12px">
+                    Подтвердить аннулирование
+                  </button>
+                </form>
+              </details>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <datalist id="revoke_reasons">
+    {% for reason in revoke_reasons %}<option value="{{ reason }}">{% endfor %}
+  </datalist>
   {% else %}
-    <p class="muted">Допусков нет. Добавьте первого инструктирующего.</p>
+    <p class="muted">
+      Допусков нет. Нажмите «Добавить допуск», чтобы указать, кто и по какой
+      программе может проводить инструктаж.
+    </p>
   {% endif %}
 </div>
 
+{% if without_deputy %}
 <div class="panel">
-  <h2 style="margin-top:0">Добавить допуск</h2>
-  <form method="post" action="{{ url_for('instructor_new') }}" data-once>
-    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-    <div class="grid grid-2">
-      <div class="field">
-        <label for="fio">ФИО *</label>
-        <input type="text" id="fio" name="fio" required>
-      </div>
-      <div class="field">
-        <label for="position">Должность</label>
-        <input type="text" id="position" name="position" data-suggestions='{{ dicts.position | tojson }}'>
-      </div>
-      <div class="field">
-        <label for="program">Программа / основание</label>
-        <input type="text" id="program" name="program" data-suggestions='{{ dicts.program | tojson }}'>
-      </div>
-      <div class="field">
-        <label>Разрешённые виды</label>
-        {% for t in training_types %}
-          <label class="checkbox-row" style="margin:2px 0">
-            <input type="checkbox" name="types" value="{{ t }}"> <span>{{ t }}</span>
-          </label>
-        {% endfor %}
-        <div class="hint">Если ничего не отмечено, допуск действует для всех видов.</div>
-      </div>
-      <div class="field">
-        <label for="valid_from">Действует с</label>
-        <input type="date" id="valid_from" name="valid_from">
-      </div>
-      <div class="field">
-        <label for="valid_to">Действует по</label>
-        <input type="date" id="valid_to" name="valid_to">
-        <div class="hint">Оставьте пустым, если срок не установлен.</div>
-      </div>
-    </div>
-    <div class="field">
-      <label for="note">Примечание</label>
-      <input type="text" id="note" name="note">
-    </div>
-    <div class="actions"><button type="submit">Добавить</button></div>
-  </form>
+  <h3 style="margin-top:0">Допуски без заместителя</h3>
+  <p class="small muted">
+    Если такой инструктирующий уволится или его допуск аннулируют, инструктажи
+    по этим программам станет некому проводить. Назначьте заместителя заранее.
+  </p>
+  <ul class="errors" style="color:var(--warn)">
+    {% for r in without_deputy %}
+      <li>{{ r.fio }} — {{ r.program or 'без указания программы' }}</li>
+    {% endfor %}
+  </ul>
 </div>
+{% endif %}
 {% endblock %}

@@ -69,6 +69,11 @@ def _check_instructor(book: Book, instructor_id: str, *, on: date,
     trainer = instructor_by_id(book, instructor_id)
     if trainer is None:
         raise NotFoundError("Инструктирующий не найден.")
+    if str(trainer.get("status") or "Действует") != "Действует":
+        raise ValidationError(
+            "Допуск этого инструктирующего аннулирован — проводить инструктаж он не может.",
+            fields={"instructor_id": "Выберите другого инструктирующего."},
+        )
     if training_type not in instructor_types(trainer):
         raise ValidationError(
             "У инструктирующего нет допуска по этому виду инструктажа.",
