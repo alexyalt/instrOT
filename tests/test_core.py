@@ -506,3 +506,52 @@ class TestStorage:
     def test_schema_version_written(self, book):
         fresh = excel_store.open_book(book.path, data_dir=book.data_dir)
         assert int(fresh.org_value("schema_version")) == config.SCHEMA_VERSION
+
+
+# --------------------------------------------------------------------------- #
+# Увольнение инструктирующего (комментарий 30.10, п. 22)
+# --------------------------------------------------------------------------- #
+
+class TestDismissalImpact:
+    def _trainer(self, book, **extra):
+        person = services.add_worker(book, {
+            "fio": "Сидоров Сидор Сидорович", "position": "Инженер по ОТ",
+            "department": "ОТ", "birth_date": date(1980, 1, 1),
+            "hire_date": date(2020, 1, 1),
+        })
+        data = {"fio": person["fio"], "person_id": person["id"],
+                "types": "Вводный,Повторный", "program": "ИОТ-001",
+                "valid_to": date(2030, 1, 1)}
+        data.update(extra)
+        return person, services.add_instructor(book, data)
+
+    def test_worker_without_permits_has_no_impact(self, book, worker):
+        impact = services.dismissal_impact(book, worker["id"])
+        assert impact["permits"] == []
+        assert impact["orphan_types"] == []
+
+    def test_sole_trainer_leaves_types_uncovered(self, book):
+        person, _ = self._trainer(book)
+        impact = services.dismissal_impact(book, person["id"])
+        assert len(impact["permits"]) == 1
+        assert any("Вводный" in label and "ИОТ-001" in label
+                   for label in impact["orphan_types"])
+
+    def test_second_trainer_covers_program(self, book):
+        person, _ = self._trainer(book)
+        services.add_instructor(book, {
+            "fio": "Другой Инструктор", "types": "Вводный,Повторный",
+            "program": "ИОТ-001", "valid_to": date(2030, 1, 1),
+        })
+        impact = services.dismissal_impact(book, person["id"])
+        assert impact["orphan_types"] == []
+
+    def test_dismissal_ends_permit(self, book):
+        person, permit = self._trainer(book)
+        services.dismiss_worker(book, person["id"], dismiss_date=date(2026, 10, 31))
+        assert not services.instructor_is_active(book, permit)
+
+    def test_unknown_worker(self, book):
+        from ot_registry.errors import NotFoundError
+        with pytest.raises(NotFoundError):
+            services.dismissal_impact(book, "нет-такого")
