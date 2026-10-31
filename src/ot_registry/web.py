@@ -26,7 +26,9 @@ from flask import (
     url_for,
 )
 
-from . import config, deadlines, manual_mode, migrations, navigation, printing, registration, reports, services, validation
+from . import (config, deadlines, docx_templates, manual_mode, migrations,
+               navigation, printing, printing_template, registration,
+               reports, services, validation)
 from .errors import (
     AppError,
     BookChangedError,
@@ -1082,8 +1084,14 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             summary = _book_summary(book)
             planned_rows = [(r, i) for r, i in summary["rows"] if r.get("status") == "Запланирован"]
             planned_rows.sort(key=lambda p: p[0].get("plan_date") or date.min)
-            return render_template("print.html", entry=entry, book=book,
-                                   rows=planned_rows, result=None, mode="filled")
+            return render_template(
+                "print.html", entry=entry, book=book,
+                rows=planned_rows, result=None, mode="filled",
+                templates=docx_templates.discover(),
+                templates_dir=str(docx_templates.templates_dir()),
+                using_template=docx_templates.pick_template(
+                    config.CARDS_PER_PAGE) is not None,
+            )
 
         mode = request.form.get("mode", "filled")
         try:
@@ -1100,12 +1108,26 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             except ValueError:
                 count_int = 1
             result, error = safe(
-                printing.print_blank_grid, book,
-                training_type=training_type, count=count_int, per_page=per_page,
+                printing_template.print_blank_template, book,
+                training_type=training_type, count=count_int,
+                cards_per_page=per_page,
             )
+            if result is None and not error:
+                # Шаблона нет — печатаем встроенный бланк.
+                result, error = safe(
+                    printing.print_blank_grid, book,
+                    training_type=training_type, count=count_int, per_page=per_page,
+                )
         else:
             ids = request.form.getlist("training_ids")
-            result, error = safe(printing.print_filled_grid, book, ids, per_page=per_page)
+            result, error = safe(
+                printing_template.print_filled_template, book, ids,
+                cards_per_page=per_page,
+            )
+            if result is None and not error:
+                result, error = safe(
+                    printing.print_filled_grid, book, ids, per_page=per_page,
+                )
 
         if error:
             summary = _book_summary(book)

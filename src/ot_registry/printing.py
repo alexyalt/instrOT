@@ -26,7 +26,7 @@ from docx.shared import Cm, Pt, RGBColor
 from . import config, deadlines
 from .errors import ValidationError
 from .excel_store import Book
-from .validation import format_code
+from .validation import display_number, format_code
 
 
 @dataclass
@@ -35,6 +35,53 @@ class PrintResult:
     pdf_path: Path | None
     cards: int
     note: str = ""
+
+
+def placeholder_values(book: Book, row: dict[str, Any], *,
+                       card_number: int = 1) -> dict[str, str]:
+    """Значения для плейсхолдеров DOCX-шаблона.
+
+    Номера отдаются без ведущих нулей: на бланке их удобнее писать от руки.
+    Полный вид остаётся в книге.
+    """
+    def date_text(value: Any) -> str:
+        return value.strftime("%d.%m.%Y") if isinstance(value, date) else ""
+
+    code = str(row.get("code") or "")
+    return {
+        "org_name": book.org_value("full_name") or book.org_value("name"),
+        "org_short": book.org_value("name"),
+        "org_inn": book.org_value("inn"),
+        "org_kpp": book.org_value("kpp"),
+        "org_ogrn": book.org_value("ogrn"),
+        "org_address": book.org_value("address"),
+        "org_director": book.org_value("director"),
+        "org_ot": book.org_value("ot_specialist"),
+        "fio": str(row.get("fio") or ""),
+        "position": str(row.get("position") or ""),
+        "department": str(row.get("department") or ""),
+        "birth_date": date_text(row.get("birth_date")),
+        "personnel_no": str(row.get("personnel_no") or ""),
+        "type": str(row.get("type") or ""),
+        "reason": str(row.get("reason") or ""),
+        "program": str(row.get("program") or ""),
+        "plan_date": date_text(row.get("plan_date")),
+        "fact_date": date_text(row.get("fact_date")),
+        "reg_date": date_text(row.get("reg_date")),
+        "code": format_code(code) if code else "",
+        "code_raw": code,
+        "instructor_fio": str(row.get("instructor_fio") or ""),
+        "instructor_position": str(row.get("instructor_position") or ""),
+        "number_ot": display_number(str(row.get("number_ot") or "")),
+        "number_type": display_number(str(row.get("number_type") or "")),
+        "case_id": display_number(str(row.get("case_id") or "")),
+        "pack_id": display_number(str(row.get("pack_id") or "")),
+        "today": date.today().strftime("%d.%m.%Y"),
+        "card_number": str(card_number),
+        "blank_line": "______________________",
+        "signature_line": "____________________",
+        "manual_code": config.MANUAL_CODE_DISPLAY,
+    }
 
 
 def _org(book: Book) -> dict[str, str]:

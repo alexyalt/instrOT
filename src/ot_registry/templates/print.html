@@ -5,6 +5,67 @@
 
 {% if message %}<div class="flash flash-error">{{ message }}</div>{% endif %}
 
+{% if templates %}
+<div class="panel">
+  <h3 style="margin-top:0">Печать по вашим шаблонам</h3>
+  <p class="small">
+    Найдены шаблоны Word — бланки печатаются по вашему оформлению,
+    приложение только подставляет данные. Шаблон выбирается по числу
+    карточек на листе.
+  </p>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Шаблон</th><th>Карточек на листе</th><th>Полей</th><th>Проверка</th></tr></thead>
+      <tbody>
+        {% for t in templates %}
+        <tr class="{% if t.missing or t.unknown %}due-upcoming{% endif %}">
+          <td class="mono small">{{ t.path.name }}</td>
+          <td>{{ t.cards }}</td>
+          <td>{{ t.found | length }}</td>
+          <td class="small">
+            {% if t.unknown %}
+              неизвестные поля: {{ t.unknown | join(', ') }}
+            {% elif t.missing %}
+              не хватает: {{ t.missing | join(', ') }}
+            {% else %}
+              <span class="badge badge-ok">в порядке</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small" style="margin-top:8px">
+    Каталог шаблонов: <span class="mono">{{ templates_dir }}</span>.
+    Проверить или создать пример: <span class="mono">python scripts/check_templates.py --make-example</span>
+  </p>
+</div>
+{% else %}
+<div class="panel">
+  <h3 style="margin-top:0">Печать по своему шаблону</h3>
+  <p class="small">
+    Сейчас используется встроенный бланк. Чтобы печатать по своему оформлению,
+    положите в каталог шаблонов файл Word с плейсхолдерами:
+    <span class="mono">{{ templates_dir }}</span>.
+  </p>
+  <div class="help">
+    Имя файла задаёт число карточек на листе: <span class="mono">card_1.docx</span>,
+    <span class="mono">card_2.docx</span>, <span class="mono">card_3.docx</span>,
+    <span class="mono">card_4.docx</span>. Внутри — обычный текст Word с полями
+    вида <span class="mono">{{ '{{fio}}' }}</span>,
+    <span class="mono">{{ '{{type}}' }}</span>,
+    <span class="mono">{{ '{{fact_date}}' }}</span>,
+    <span class="mono">{{ '{{number_ot}}' }}</span>.
+    Полный список полей — в документации.
+  </div>
+  <p class="small">
+    Быстрый старт: <span class="mono">python scripts/check_templates.py --make-example</span>
+    создаст готовый пример, который можно открыть в Word и переделать под себя.
+  </p>
+</div>
+{% endif %}
+
 {% if result %}
 <div class="panel">
   <h3 style="margin-top:0">Файл сформирован</h3>
@@ -24,18 +85,31 @@
   <div class="panel">
     <h2 style="margin-top:0">Заполненные бланки по планам</h2>
     <p class="small muted">
-      Печатаются карточки с кодом бланка. Фактическая дата, подписи и номера
-      заполняются от руки после проведения.
+      Отметьте нужные записи. Откроется бланк с кодом: фактическая дата,
+      подписи и номера вписываются от руки после проведения.
     </p>
     {% if rows %}
     <form method="post" data-once>
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <input type="hidden" name="mode" value="filled">
+      <div class="field" style="max-width:320px">
+        <label for="per_page_filled">Шаблон / карточек на лист</label>
+        <select id="per_page_filled" name="per_page">
+          {% for t in templates %}
+            <option value="{{ t.cards }}">по шаблону {{ t.path.name }} ({{ t.cards }} на лист)</option>
+          {% endfor %}
+          {% if not templates %}
+            <option value="1">встроенный бланк, 1 на лист</option>
+            <option value="2">встроенный бланк, 2 на лист</option>
+            <option value="3">встроенный бланк, 3 на лист</option>
+          {% endif %}
+        </select>
+      </div>
       <div class="table-wrap">
         <table class="data">
           <thead>
             <tr>
-              <th><input type="checkbox" data-select-all="#plans"></th>
+              <th data-sortable="off"><input type="checkbox" data-select-all="#plans"></th>
               <th>План</th><th>Работник</th><th>Вид</th><th>Код</th>
             </tr>
           </thead>
@@ -43,7 +117,8 @@
             {% for row, info in rows %}
             <tr class="{{ info.css }}">
               <td><input type="checkbox" name="training_ids" value="{{ row.id }}"></td>
-              <td class="small">{{ row.plan_date | ru_date }}</td>
+              <td class="small" data-sort="{{ row.plan_date.isoformat() if row.plan_date else '' }}">
+                {{ row.plan_date | ru_date }}</td>
               <td class="small">{{ row.fio }}</td>
               <td class="small">{{ row.type }}</td>
               <td class="mono small">{{ row.code | format_code }}</td>
@@ -51,22 +126,6 @@
             {% endfor %}
           </tbody>
         </table>
-      </div>
-      <div class="field" style="max-width:280px">
-        <label for="per_page_filled">Карточек на лист A4</label>
-        <select id="per_page_filled" name="per_page">
-          <option value="1">1 — крупно, максимум места для подписей</option>
-          <option value="2" selected>2 — экономия бумаги</option>
-          <option value="3">3 — компактно</option>
-          <option value="4">4 — мелко, с сокращённым набором полей</option>
-          <option value="5">5 — очень плотно, обязательно проверьте на принтере</option>
-        </select>
-        <div class="hint">
-          4–5 карточек используют сокращённый набор полей (должность
-          и подразделение в одной строке). Обязательные реквизиты остаются,
-          но места для подписей меньше: <strong>проверьте первую распечатку</strong>.
-          Для документов, которые заполняются от руки, лучше 1–2 карточки на лист.
-        </div>
       </div>
       <div class="actions"><button type="submit">Печать выбранных</button></div>
     </form>
@@ -78,9 +137,9 @@
   <div class="panel">
     <h2 style="margin-top:0">Пустые бланки для ручного режима</h2>
     <p class="small">
-      На всех бланках печатается общий код <span class="mono">{{ manual_code }}</span> и надпись
-      «ручное заполнение». Печать не создаёт работников, планов или проведённых записей —
-      только запас бумаги на случай работы без компьютера или электричества.
+      На всех бланках печатается код <span class="mono">{{ manual_code }}</span> и надпись
+      про ручное заполнение. Печать не создаёт планов — это запас бумаги
+      на случай работы без компьютера или электричества.
     </p>
     <form method="post" data-once>
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -96,16 +155,15 @@
         <input type="number" id="count" name="count" value="5" min="1" max="50">
       </div>
       <div class="field">
-        <label for="per_page_blank">Карточек на лист A4</label>
+        <label for="per_page_blank">Шаблон / карточек на лист</label>
         <select id="per_page_blank" name="per_page">
-          <option value="1" selected>1 — удобнее всего заполнять от руки</option>
-          <option value="2">2 — компромисс</option>
-          <option value="3">3 — экономия бумаги</option>
+          <option value="1">1 карточка на лист — удобнее заполнять от руки</option>
+          {% for t in templates %}
+            {% if t.cards > 1 %}
+              <option value="{{ t.cards }}">по шаблону {{ t.path.name }} ({{ t.cards }} на лист)</option>
+            {% endif %}
+          {% endfor %}
         </select>
-        <div class="hint">
-          Для ручного заполнения лучше 1 карточка на лист: больше места
-          для почерка, даты и подписей.
-        </div>
       </div>
       <div class="actions"><button type="submit">Печать пустых бланков</button></div>
     </form>
