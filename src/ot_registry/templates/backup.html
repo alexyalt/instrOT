@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Резервное копирование — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Резервное копирование</h1>
+
+<div class="grid grid-3">
+  <div class="stat">
+    <div class="stat-value">{{ total }}</div>
+    <div class="stat-label">локальных копий</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value" style="font-size:16px">{{ status_text }}</div>
+    <div class="stat-label">почта</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value" style="font-size:16px">{{ next_email_in }}</div>
+    <div class="stat-label">следующая отправка</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Локальные копии</h2>
+  <p class="small muted">
+    Копия создаётся автоматически перед каждой записью. Здесь задаётся,
+    сколько копий хранить: старые удаляются, чтобы не занимать место.
+    Последняя копия не удаляется никогда.
+  </p>
+  <form method="post" action="{{ url_for('backup_page') }}" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="save">
+    <div class="field" style="max-width:300px">
+      <label for="keep_local">Хранить копий</label>
+      <input type="number" id="keep_local" name="keep_local" min="1" max="500"
+             value="{{ settings.keep_local }}">
+      <div class="hint">Рекомендуется 20–50. Каждая копия — полный файл книги.</div>
+    </div>
+    <div class="actions"><button type="submit">Сохранить</button></div>
+  </form>
+  <form method="post" action="{{ url_for('backup_local') }}" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <button type="submit" class="secondary">Создать копию сейчас</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Копии на почту</h2>
+  <p class="small">
+    Копия на этом же компьютере не спасёт при поломке диска. Отправка на почту
+    даёт копию вне компьютера. Приложение отправляет архив раз в указанное
+    число дней при открытии организации.
+  </p>
+  {% if settings.last_email_error %}
+    <div class="flash flash-error">Последняя отправка не удалась: {{ settings.last_email_error }}</div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('backup_page') }}" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="save">
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="email_enabled" name="email_enabled" value="1"
+             {% if settings.email_enabled %}checked{% endif %}>
+      <label for="email_enabled">Отправлять копию на электронную почту</label>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="field">
+        <label for="email_every_days">Отправлять раз в, дней</label>
+        <input type="number" id="email_every_days" name="email_every_days" min="1" max="90"
+               value="{{ settings.email_every_days }}">
+        <div class="hint">5 дней — разумный баланс: почта не забивается, потери минимальны.</div>
+      </div>
+
+      <div class="field">
+        <label for="smtp_preset">Почтовый сервис</label>
+        <select id="smtp_preset" name="smtp_preset">
+          {% for key, preset in presets.items() %}
+            <option value="{{ key }}" {% if settings.smtp_preset == key %}selected{% endif %}>
+              {{ key }}{% if preset.host %} — {{ preset.host }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+        <div class="hint">Если сервиса нет в списке — выберите «custom» и укажите сервер.</div>
+      </div>
+
+      <div class="field">
+        <label for="sender">Адрес отправителя</label>
+        <input type="text" id="sender" name="sender" value="{{ settings.sender }}"
+               placeholder="ot@example.ru" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="recipient">Адрес получателя копий</label>
+        <input type="text" id="recipient" name="recipient" value="{{ settings.recipient }}"
+               placeholder="archive@example.ru" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="username">Логин (если отличается от адреса)</label>
+        <input type="text" id="username" name="username" value="{{ settings.username }}"
+               autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="mail_password">Пароль приложения</label>
+        <input type="password" id="mail_password" name="mail_password"
+               placeholder="{% if has_password %}сохранён — оставьте пустым{% else %}пароль приложения{% endif %}"
+               autocomplete="new-password">
+        <div class="hint">
+          Для mail.ru, Яндекс и Gmail обычный пароль не подойдёт — нужен
+          «пароль приложения» из настроек почты. Хранится локально, в книгу не попадает.
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="smtp_host">Сервер SMTP (для своего)</label>
+        <input type="text" id="smtp_host" name="smtp_host" value="{{ settings.smtp_host }}"
+               placeholder="smtp.example.ru" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="smtp_port">Порт</label>
+        <input type="number" id="smtp_port" name="smtp_port" value="{{ settings.smtp_port }}">
+      </div>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="smtp_ssl" name="smtp_ssl" value="1"
+             {% if settings.smtp_ssl %}checked{% endif %}>
+      <label for="smtp_ssl">Использовать защищённое соединение (SSL)</label>
+    </div>
+
+    <div class="help">
+      Пароль приложения хранится в файле рядом с книгой и доступен пользователю
+      компьютера. Если это неприемлемо — делайте копии вручную или настройте
+      копирование папки на другой диск.
+    </div>
+
+    <div class="actions">
+      <button type="submit">Сохранить настройки</button>
+      <button type="submit" name="action" value="test" class="secondary">Проверить отправку</button>
+      <button type="submit" name="action" value="now" class="secondary">Отправить сейчас</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Последние локальные копии</h2>
+  {% if backups %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Файл</th><th>Размер</th><th>Создана</th></tr></thead>
+      <tbody>
+        {% for b in backups %}
+        <tr>
+          <td class="mono small">{{ b.name }}</td>
+          <td class="small">{{ b.size }}</td>
+          <td class="small">{{ b.modified }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">Показаны последние 20 из {{ total }}.</p>
+  {% else %}
+    <p class="muted">Копий пока нет.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Как восстановить</h2>
+  <ol class="small">
+    <li>Возьмите копию из папки <span class="mono">backups</span> или из письма.</li>
+    <li>Распакуйте, если это архив.</li>
+    <li>Подключите файл копии через «Подключить существующую» — или замените
+        повреждённый файл копией, сохранив повреждённый для разбора.</li>
+    <li>Проверьте данные и убедитесь, что номера совпадают с бумажным архивом.</li>
+  </ol>
+</div>
+{% endblock %}

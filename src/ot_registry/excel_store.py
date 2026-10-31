@@ -521,14 +521,43 @@ def _make_backup(book: Book) -> Path | None:
 
 
 def rotate_backups(backups: Path, keep: int | None = None) -> None:
-    """Удалить старые копии, оставив последние `keep` штук."""
-    keep = config.DEFAULT_BACKUP_KEEP if keep is None else keep
-    files = sorted(backups.glob("registry_*.xlsx"))
+    """Удалить старые копии, оставив последние `keep` штук.
+
+    Лимит задаётся в настройках резервирования организации; значение
+    по умолчанию применяется, если файл настроек ещё не создан.
+    """
+    if keep is None:
+        try:
+            from .backups import load_settings
+
+            keep = _load_keep_from_settings(backups)
+        except Exception:
+            keep = config.DEFAULT_BACKUP_KEEP
+    keep = max(1, int(keep))
+    files = sorted(backups.glob("registry_*.xlsx"), key=lambda p: p.name)
     for old in files[: max(len(files) - keep, 0)]:
         try:
             old.unlink()
         except OSError:
             pass
+
+
+def _load_keep_from_settings(backups_dir: Path) -> int:
+    """Прочитать лимит копий из настроек организации (если они есть)."""
+    import json
+
+    path = Path(backups_dir).parent / "backup_settings.json"
+    if not path.exists():
+        return config.DEFAULT_BACKUP_KEEP
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return config.DEFAULT_BACKUP_KEEP
+    try:
+        value = int(data.get("keep_local") or config.DEFAULT_BACKUP_KEEP)
+    except (TypeError, ValueError):
+        return config.DEFAULT_BACKUP_KEEP
+    return max(1, value)
 
 
 def _build_workbook(book: Book, *, protect: bool) -> Workbook:

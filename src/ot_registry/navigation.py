@@ -30,7 +30,8 @@ NAV_ITEMS: tuple[NavItem, ...] = (
     NavItem("instructors", "instructors_list", "Инструктирующие", "допуски по программам"),
     NavItem("reports", "reports_page", "Отчёты", "контроль и сводки"),
     NavItem("archive", "archive", "Архив", "дела и пакеты документов"),
-    NavItem("excel", "excel_page", "Excel и резерв", "ручной режим, копии, защита"),
+    NavItem("backup", "backup_page", "Резерв", "копии, отправка на почту"),
+    NavItem("excel", "excel_page", "Excel и защита", "ручной режим и защита книги"),
     NavItem("settings", "settings_page", "Настройки", "реквизиты и параметры"),
 )
 

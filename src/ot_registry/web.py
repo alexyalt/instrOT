@@ -10,7 +10,7 @@ from __future__ import annotations
 import hmac
 import os
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,7 +26,7 @@ from flask import (
     url_for,
 )
 
-from . import (config, deadlines, docx_templates, manual_mode, migrations,
+from . import (backups, config, deadlines, docx_templates, manual_mode, migrations,
                navigation, printing, printing_template, registration,
                reports, services, validation)
 from .errors import (
@@ -79,6 +79,23 @@ def _book_summary(book: Book) -> dict[str, Any]:
             counts["soon"] += 1
         rows.append((row, info))
     return {"counts": counts, "rows": rows, "soon_days": soon_days, "upcoming_days": upcoming}
+
+
+def _days_until_next(settings) -> str:
+    """Сколько дней до следующей плановой отправки копии на почту."""
+    if not settings.email_enabled:
+        return "выключено"
+    if not settings.last_email_at:
+        return "при следующем открытии"
+    try:
+        last = datetime.fromisoformat(settings.last_email_at).date()
+    except ValueError:
+        return "при следующем открытии"
+    due = last + timedelta(days=max(1, settings.email_every_days))
+    days = (due - config.today()).days
+    if days <= 0:
+        return "при следующем открытии"
+    return f"через {days} дн."
 
 
 def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
@@ -391,6 +408,20 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         if error:
             return render_template("org_error.html", error=error, entry=entry)
 
+        # Плановая отправка резервной копии: раз в N дней при открытии.
+        # Ошибка почты не мешает работе — только предупреждение.
+        email_note = ""
+        try:
+            mail_result = backups.run_scheduled(book)
+            if mail_result.get("ran"):
+                email_note = (
+                    "Резервная копия отправлена на почту."
+                    if mail_result.get("sent")
+                    else f"Не удалось отправить копию на почту: {mail_result.get('error', '')}"
+                )
+        except Exception:
+            email_note = ""
+
         summary = _book_summary(book)
         visible = [
             (row, info) for row, info in summary["rows"]
@@ -417,6 +448,7 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             instructors=instructor_rows,
             expiring=expiring,
             counts=summary["counts"],
+            email_note=email_note,
         )
 
     @app.get("/trainings")
@@ -1524,6 +1556,97 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         _, error = safe(save_book, book, action="settings_nav", reason=note)
         flash(note if not error else error["message"], "ok" if not error else "error")
         return redirect(url_for("settings_page") + "#nav")
+
+    # -- резервное копирование -------------------------------------------
+    @app.route("/backup", methods=["GET", "POST"])
+    def backup_page():
+        """Настройки резервирования: локальные копии и отправка на почту."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+
+        if request.method == "POST":
+            form = request.form.to_dict()
+            current = backups.load_settings(book)
+            try:
+                current.keep_local = int(form.get("keep_local") or current.keep_local)
+                current.email_every_days = int(
+                    form.get("email_every_days") or current.email_every_days
+                )
+            except ValueError:
+                pass
+            current.email_enabled = bool(form.get("email_enabled"))
+            current.smtp_preset = form.get("smtp_preset", current.smtp_preset)
+            current.smtp_host = (form.get("smtp_host") or "").strip()
+            try:
+                current.smtp_port = int(form.get("smtp_port") or current.resolved_port)
+            except ValueError:
+                current.smtp_port = current.resolved_port
+            current.smtp_ssl = bool(form.get("smtp_ssl"))
+            current.sender = (form.get("sender") or "").strip()
+            current.recipient = (form.get("recipient") or "").strip()
+            current.username = (form.get("username") or "").strip()
+
+            action = form.get("action", "save")
+            message, kind = "", "ok"
+            try:
+                backups.validate_settings(current)
+            except ValidationError as exc:
+                message, kind = exc.message, "error"
+            else:
+                password = form.get("mail_password") or ""
+                backups.save_settings(book, current, password=password)
+                if action == "test":
+                    result = backups.send_email(book, current, reason="проверка настроек")
+                    if result["sent"]:
+                        message = f"Проверочное письмо отправлено на {current.recipient}."
+                    else:
+                        message = f"Отправка не удалась: {result['error']}"
+                        kind = "error"
+                elif action == "now":
+                    result = backups.send_email(book, current, reason="по команде оператора")
+                    message = ("Копия отправлена на " + current.recipient
+                               if result["sent"] else f"Отправка не удалась: {result['error']}")
+                    kind = "ok" if result["sent"] else "error"
+                else:
+                    message = "Настройки резервирования сохранены."
+            flash(message, kind)
+            return redirect(url_for("backup_page"))
+
+        settings_data = backups.load_settings(book)
+        folder = book.backups_dir()
+        files = sorted(folder.glob("registry_*.xlsx"), reverse=True) if folder.exists() else []
+        listing = []
+        for path in files[:20]:
+            stat = path.stat()
+            listing.append({
+                "name": path.name,
+                "size": f"{stat.st_size / 1024:.0f} КБ",
+                "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M"),
+            })
+        return render_template(
+            "backup.html", entry=entry, book=book,
+            settings=settings_data,
+            presets=backups.MAIL_PRESETS,
+            has_password=bool(backups.read_password(book)),
+            status_text=backups.email_status(settings_data),
+            backups=listing,
+            total=len(files),
+            next_email_in=_days_until_next(settings_data),
+        )
+
+    @app.post("/backup/local")
+    def backup_local():
+        """Создать локальную копию по команде оператора."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        path, error = safe(backups.make_local_copy, book, reason="по команде оператора")
+        flash(f"Копия создана: {path.name}" if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("backup_page"))
 
     @app.get("/journal")
     def journal_view():
