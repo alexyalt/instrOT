@@ -8,7 +8,8 @@ from datetime import date
 from pathlib import Path
 
 APP_NAME = "instrOT"
-APP_TITLE = "Учёт инструктажей по охране труда"
+APP_FULL_TITLE = "Система контроля инструктажей по охране труда"
+APP_TITLE = "Система контроля инструктажей по ОТ"
 VERSION = "1.0.0.dev0"
 
 SCHEMA_VERSION = 1
@@ -30,6 +31,7 @@ MAX_CARDS_PER_PAGE = 5
 
 # Сколько резервных копий хранить по умолчанию.
 DEFAULT_BACKUP_KEEP = 50
+DEFAULT_EMAIL_BACKUP_EVERY_DAYS = 5
 DEFAULT_DAILY_BACKUP_KEEP = 30
 
 # Периодичность повторного инструктажа по охране труда.
@@ -56,9 +58,19 @@ TYPE_PREFIX = {
     "Целевой": "ЦЛ",
 }
 
-WORKER_STATUSES = ["Работает", "Уволен"]
+WORKER_STATUSES = ["Работает", "Уволен", "Посетитель", "Подрядчик"]
+
+# Статусы, при которых работник считается действующим: для них планируются
+# инструктажи и он попадает в подсказки.
+ACTIVE_WORKER_STATUSES = ["Работает", "Посетитель", "Подрядчик"]
+
+# Статусы, для которых допустим только вводный инструктаж.
+EXTERNAL_WORKER_STATUSES = ["Посетитель", "Подрядчик"]
 
 TRAINING_STATUSES = ["Запланирован", "Проведён", "Отменён"]
+
+# Состояние допуска инструктирующего.
+INSTRUCTOR_STATUSES = ["Действует", "Аннулирован"]
 
 TRAINING_SOURCES = ["Система", "Ручной бланк", "Excel"]
 

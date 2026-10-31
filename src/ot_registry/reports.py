@@ -129,3 +129,34 @@ def pack_rows(book: Book) -> list[dict[str, Any]]:
         key = (str(row.get("case_id") or ""), str(row.get("pack_id") or ""))
         result.append({**row, "documents": counts.get(key, 0)})
     return sorted(result, key=lambda r: (str(r.get("case_id") or ""), str(r.get("pack_id") or "")))
+
+
+def case_rows(book: Book) -> list[dict[str, Any]]:
+    """Дела с числом пакетов и документов."""
+    packs = pack_rows(book)
+    result: dict[str, dict[str, Any]] = {}
+    for row in book.table("Архив").rows:
+        case_id = str(row.get("case_id") or "")
+        if not case_id or row.get("pack_id"):
+            continue
+        result[case_id] = {
+            "case_id": case_id,
+            "year": row.get("year"),
+            "type": row.get("type"),
+            "title": row.get("title"),
+            "status": row.get("status"),
+            "closed_at": row.get("closed_at"),
+            "opened_at": row.get("opened_at"),
+            "packs": 0,
+            "closed_packs": 0,
+            "documents": 0,
+        }
+    for pack in packs:
+        case_id = str(pack.get("case_id") or "")
+        if case_id not in result:
+            continue
+        result[case_id]["packs"] += 1
+        if str(pack.get("status") or "") == "Закрыт":
+            result[case_id]["closed_packs"] += 1
+        result[case_id]["documents"] += int(pack.get("documents") or 0)
+    return sorted(result.values(), key=lambda r: str(r["case_id"]))

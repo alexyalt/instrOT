@@ -47,6 +47,36 @@ def is_manual_code(code: str) -> bool:
     return str(code).strip() == config.MANUAL_CODE
 
 
+def display_number(value: str) -> str:
+    """Номер для человека: без ведущих нулей.
+
+    В книге номер хранится с ведущими нулями (ОТ000030) — так удобно
+    сортировать и видеть разрядность. На бланке и на экране оператору
+    удобнее короткий вид: ОТ30, 30, Д1, П1.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # Отделяем буквенный префикс: ОТ, ВВ, Д, П и т. п.
+    index = 0
+    while index < len(text) and not text[index].isdigit():
+        index += 1
+    prefix, digits = text[:index], text[index:]
+    if not digits.isdigit():
+        return text
+    stripped = digits.lstrip("0") or "0"
+    return f"{prefix}{stripped}" if prefix else stripped
+
+
+def display_number_short(value: str) -> str:
+    """Только цифры номера, без префикса: ОТ000030 → 30."""
+    text = str(value or "").strip()
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return ""
+    return digits.lstrip("0") or "0"
+
+
 def _required_text(value: Any, field: str, label: str, errors: dict[str, str]) -> str:
     text = ("" if value is None else str(value)).strip()
     if not text:
@@ -135,7 +165,17 @@ def validate_plan(data: dict[str, Any]) -> dict[str, Any]:
     """Проверить данные планирования инструктажа."""
     errors: dict[str, str] = {}
     worker_id = _required_text(data.get("worker_id"), "worker_id", "Работник", errors)
+    if errors.get("worker_id"):
+        errors["worker_id"] = (
+            "Выберите работника из появившегося списка. Если его нет — добавьте "
+            "через раздел «Работники»."
+        )
     trainer = _required_text(data.get("instructor_id"), "instructor_id", "Инструктирующий", errors)
+    if errors.get("instructor_id"):
+        errors["instructor_id"] = (
+            "Выберите инструктирующего из списка. Если нужного нет — добавьте допуск "
+            "в разделе «Инструктирующие»."
+        )
 
     plan_date = data.get("plan_date")
     if plan_date is None:
@@ -203,8 +243,11 @@ def validate_manual_entry(data: dict[str, Any], *, today: date | None = None) ->
     errors: dict[str, str] = {}
 
     worker_id = str(data.get("worker_id") or "").strip()
-    if not worker_id and not str(data.get("new_worker_fio") or "").strip():
-        errors["worker_id"] = "Выберите работника или укажите ФИО для новой записи."
+    if not worker_id:
+        errors["worker_id"] = (
+            "Выберите работника из списка. Если его нет — добавьте через раздел "
+            "«Работники»: там сохраняются дата рождения и кадровые данные."
+        )
 
     training_type = str(data.get("type") or "").strip()
     if training_type not in config.TRAINING_TYPES:
@@ -221,9 +264,6 @@ def validate_manual_entry(data: dict[str, Any], *, today: date | None = None) ->
     base.update(
         {
             "worker_id": worker_id,
-            "new_worker_fio": str(data.get("new_worker_fio") or "").strip(),
-            "new_worker_position": str(data.get("new_worker_position") or "").strip(),
-            "new_worker_department": str(data.get("new_worker_department") or "").strip(),
             "type": training_type,
             "program": str(data.get("program") or "").strip(),
             "reason": str(data.get("reason") or "").strip(),

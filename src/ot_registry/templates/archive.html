@@ -1,42 +1,118 @@
 {% extends "base.html" %}
 {% block title %}Архив — {{ entry.name }}{% endblock %}
 {% block content %}
-<h1>Архив: дела и пакеты</h1>
-<p class="muted">
-  Дело — по виду инструктажа и году; внутри дела один открытый пакет.
-  Закрытие пакета фиксирует, что листы подшиты.
-</p>
+<div class="page-head row" style="justify-content:space-between;align-items:center">
+  <div>
+    <h1 style="margin:0">Архив: дела и пакеты</h1>
+    <p class="muted small" style="margin:4px 0 0">
+      Дело — по виду инструктажа и году; внутри дела один открытый пакет.
+      Закрытие пакета означает, что листы подшиты в папку.
+    </p>
+  </div>
+  <div class="actions" style="margin:0">
+    <a class="button secondary" href="{{ url_for('reports_page') }}">Отчёты</a>
+  </div>
+</div>
+
+<div class="grid grid-3">
+  <div class="stat">
+    <div class="stat-value">{{ open_count }}</div>
+    <div class="stat-label">открытых пакетов</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ closed_count }}</div>
+    <div class="stat-label">закрытых пакетов</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ cases | length }}</div>
+    <div class="stat-label">дел</div>
+  </div>
+</div>
+
+<div class="panel panel-tight">
+  <form method="get" class="row" style="align-items:center">
+    <label class="checkbox-row" style="margin:0">
+      <input type="checkbox" name="closed" value="1" {% if show_closed %}checked{% endif %}
+             onchange="this.form.submit()">
+      <span>Показывать закрытые пакеты</span>
+    </label>
+    <div class="field" style="flex:0 0 auto">
+      <button type="submit" class="secondary">Применить</button>
+    </div>
+  </form>
+</div>
 
 <div class="panel">
+  <h2 style="margin-top:0">Дела</h2>
+  {% if cases %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Дело</th><th>Год</th><th>Вид</th><th>Пакетов</th>
+            <th>Документов</th><th>Открыт</th><th>Закрыт</th><th>Состояние</th></tr>
+      </thead>
+      <tbody>
+        {% for c in cases %}
+        <tr>
+          <td class="mono">{{ c.case_id | num }}</td>
+          <td>{{ c.year or '—' }}</td>
+          <td class="small">{{ c.type or '—' }}</td>
+          <td>{{ c.packs }}{% if c.closed_packs %} <span class="muted small">(закрыто {{ c.closed_packs }})</span>{% endif %}</td>
+          <td><strong>{{ c.documents }}</strong></td>
+          <td class="small">{{ c.opened_at | ru_date or '—' }}</td>
+          <td class="small">{{ c.closed_at | ru_date or '—' }}</td>
+          <td>
+            {% if c.status == 'Открыт' %}<span class="badge badge-warn">Открыто</span>
+            {% else %}<span class="badge">Закрыто</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">Дел пока нет: они появятся при регистрации первого инструктажа.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Пакеты</h2>
+  <p class="small muted">
+    В пакете показано, сколько документов уже зарегистрировано. Реестр пакета
+    можно распечатать и вложить в папку.
+  </p>
   {% if rows %}
   <div class="table-wrap">
     <table class="data">
       <thead>
-        <tr><th>Дело</th><th>Год</th><th>Вид</th><th>Пакет</th><th>Название</th>
-            <th>Открыт</th><th>Закрыт</th><th>Статус</th><th></th></tr>
+        <tr><th>Дело</th><th>Пакет</th><th>Вид</th><th>Документов</th>
+            <th>Открыт</th><th>Закрыт</th><th>Статус</th>
+            <th data-sortable="off">Действия</th></tr>
       </thead>
       <tbody>
         {% for r in rows %}
         <tr>
-          <td class="mono">{{ r.case_id or '—' }}</td>
-          <td>{{ r.year or '—' }}</td>
+          <td class="mono small">{{ r.case_id | num }}</td>
+          <td class="mono small">{{ r.pack_id | num }}</td>
           <td class="small">{{ r.type or '—' }}</td>
-          <td class="mono">{{ r.pack_id or '—' }}</td>
-          <td class="small">{{ r.title or '—' }}</td>
+          <td><strong>{{ r.documents }}</strong></td>
           <td class="small">{{ r.opened_at | ru_date or '—' }}</td>
           <td class="small">{{ r.closed_at | ru_date or '—' }}</td>
           <td>
             {% if r.status == 'Открыт' %}<span class="badge badge-warn">Открыт</span>
             {% else %}<span class="badge">Закрыт</span>{% endif %}
           </td>
-          <td>
-            {% if r.pack_id and r.status == 'Открыт' %}
-            <form method="post" action="{{ url_for('close_pack') }}" class="inline">
+          <td class="small">
+            <a href="{{ url_for('pack_registry', case_id=r.case_id, pack_id=r.pack_id) }}">Реестр</a>
+            {% if r.status == 'Открыт' %}
+            <form method="post" action="{{ url_for('close_pack') }}" class="inline"
+                  style="margin-left:8px" data-once>
               <input type="hidden" name="_csrf" value="{{ csrf_token }}">
               <input type="hidden" name="case_id" value="{{ r.case_id }}">
               <input type="hidden" name="pack_id" value="{{ r.pack_id }}">
               <input type="hidden" name="reason" value="Закрытие пакета">
-              <button type="submit" class="secondary" style="padding:4px 10px;font-size:12px">Закрыть</button>
+              <button type="submit" class="secondary" style="padding:4px 10px;font-size:12px"
+                      onclick="return confirm('Закрыть пакет? Новые документы в него уже не попадут.')">Закрыть</button>
             </form>
             {% endif %}
           </td>
@@ -46,13 +122,15 @@
     </table>
   </div>
   {% else %}
-    <p class="muted">Архив пуст: дела и пакеты появятся при регистрации инструктажей.</p>
+    <p class="muted">
+      {% if show_closed %}Пакетов нет.{% else %}Открытых пакетов нет — включите показ закрытых.{% endif %}
+    </p>
   {% endif %}
 </div>
 
 <div class="help">
-  Номера дела и пакета присваиваются автоматически при регистрации проведённого
-  инструктажа. Поздний документ за прошлый год ищется по номеру дела — проверьте
-  год и статус пакета перед подшивкой.
+  Номера дела и пакета присваиваются автоматически при регистрации инструктажа.
+  Поздно поступивший документ прошлого года ищется по номеру дела: проверьте
+  год и состояние пакета перед подшивкой.
 </div>
 {% endblock %}

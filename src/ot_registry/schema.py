@@ -93,6 +93,11 @@ INSTRUCTORS_COLUMNS = (
     Column("types", "Разрешённые виды", width=30, note="Через запятую"),
     Column("valid_from", "Действует с", "date", 14),
     Column("valid_to", "Действует по", "date", 14),
+    Column("status", "Состояние", width=14, note="Действует / Аннулирован"),
+    Column("revoked_at", "Аннулирован", "date", 14),
+    Column("revoke_reason", "Причина аннулирования", width=28),
+    Column("deputy_id", "ID заместителя", width=38,
+           note="Строка допуска, к которой привязан заместитель"),
     Column("note", "Примечание", width=26),
 )
 
@@ -172,6 +177,20 @@ DICTIONARY_COLUMNS = (
     Column("note", "Примечание", width=30),
 )
 
+# Инструкции и программы по охране труда: отдельный лист, потому что у записи
+# есть номер, дата и приказ утверждения, а также состояние действия.
+PROGRAM_COLUMNS = (
+    Column("id", "ID", width=38, note="Постоянный идентификатор, не менять"),
+    Column("number", "Номер", width=14, note="например: ИОТ-001"),
+    Column("title", "Название", width=52, required=True),
+    Column("description", "Краткое описание", width=40),
+    Column("approved_by", "Утверждено приказом", width=30),
+    Column("approved_at", "Дата утверждения", "date", 16),
+    Column("status", "Состояние", width=16, note="Действует / Не действует"),
+    Column("replaced_by", "Заменено на", width=24),
+    Column("note", "Примечание", width=28),
+)
+
 WORKER_HISTORY_COLUMNS = (
     Column("id", "ID записи", width=38),
     Column("worker_id", "ID работника", width=38),
@@ -205,6 +224,8 @@ SHEETS: tuple[Sheet, ...] = (
           note="Формулы Excel: считается при открытии книги"),
     Sheet("Архив", ARCHIVE_COLUMNS, note="Строка — один пакет",
           validation={"status": ("Открыт", "Закрыт")}),
+    Sheet("Инструкции", PROGRAM_COLUMNS, key="id",
+          validation={"status": ("Действует", "Не действует")}),
     Sheet("Справочники", DICTIONARY_COLUMNS),
     Sheet("История_работников", WORKER_HISTORY_COLUMNS, key="id"),
     Sheet("Инструкция", INSTRUCTION_COLUMNS, kind="info"),
@@ -235,6 +256,8 @@ ORG_KEY = {
     "upcoming_days": "Порог предстоящих, дней",
     "default_period": "Периодичность по умолчанию, мес",
     "custom_forms": "Индивидуальные формы",
+    "brand_color": "Цвет фирмы",
+    "nav_order": "Порядок закладок",
     "created_at": "Создана",
     "updated_at": "Обновлена",
     "counter_ot": "Счётчик ОТ",
@@ -245,6 +268,7 @@ ORG_KEY = {
 
 DICTIONARY_KINDS = {
     "reason": "Причины",
+    "revoke": "Причины аннулирования",
     "position": "Должности",
     "department": "Подразделения",
     "program": "Программы",
@@ -271,6 +295,7 @@ DEFAULT_DICTIONARIES: tuple[tuple[str, str, str], ...] = (
     ("department", "Участок благоустройства", ""),
     ("department", "Участок озеленения", ""),
     ("department", "Клининговый участок", ""),
+    ("department", "Другое", "внешние и временные работники"),
     ("program", "Вводный инструктаж по охране труда", ""),
     ("program", "Инструкция по охране труда № 1 (дворник)", ""),
     ("program", "Инструкция по охране труда № 2 (озеленитель)", ""),

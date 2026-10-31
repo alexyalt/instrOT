@@ -10,7 +10,7 @@ from __future__ import annotations
 import hmac
 import os
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,7 +26,9 @@ from flask import (
     url_for,
 )
 
-from . import config, deadlines, manual_mode, migrations, printing, registration, reports, services, validation
+from . import (backups, config, deadlines, docx_templates, manual_mode, migrations,
+               navigation, printing, printing_template, registration,
+               reports, services, validation)
 from .errors import (
     AppError,
     BookChangedError,
@@ -77,6 +79,23 @@ def _book_summary(book: Book) -> dict[str, Any]:
             counts["soon"] += 1
         rows.append((row, info))
     return {"counts": counts, "rows": rows, "soon_days": soon_days, "upcoming_days": upcoming}
+
+
+def _days_until_next(settings) -> str:
+    """Сколько дней до следующей плановой отправки копии на почту."""
+    if not settings.email_enabled:
+        return "выключено"
+    if not settings.last_email_at:
+        return "при следующем открытии"
+    try:
+        last = datetime.fromisoformat(settings.last_email_at).date()
+    except ValueError:
+        return "при следующем открытии"
+    due = last + timedelta(days=max(1, settings.email_every_days))
+    days = (due - config.today()).days
+    if days <= 0:
+        return "при следующем открытии"
+    return f"через {days} дн."
 
 
 def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
@@ -150,6 +169,57 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
 
     app.jinja_env.filters["ru_date"] = fmt_date
 
+    def number_display(value: Any, *, prefix: bool = True) -> str:
+        return validation.display_number(value) if prefix else validation.display_number_short(value)
+
+    app.jinja_env.filters["num"] = number_display
+    app.jinja_env.filters["num_short"] = lambda v: validation.display_number_short(v)
+
+    def instructor_cell(row: dict) -> Any:
+        """Данные для выделенного блока инструктирующего в карточке."""
+        return row.get("instructor_fio") or ""
+
+    app.jinja_env.globals["instructor_cell"] = instructor_cell
+
+    def worker_options(rows) -> list[dict[str, str]]:
+        """Данные для поля выбора работника с поиском по любому слову."""
+        result = []
+        for row in rows:
+            parts = [str(row.get("fio") or ""), str(row.get("position") or ""),
+                     str(row.get("department") or "")]
+            label = str(row.get("fio") or "")
+            if row.get("position"):
+                label += f" — {row['position']}"
+            if row.get("department"):
+                label += f" ({row['department']})"
+            if row.get("personnel_no"):
+                parts.append(str(row["personnel_no"]))
+            result.append({
+                "id": str(row.get("id") or ""),
+                "label": label,
+                "search": " ".join(parts).lower(),
+            })
+        return result
+
+    def instructor_options(rows) -> list[dict[str, str]]:
+        """Данные для поля выбора инструктирующего: ФИО + программа."""
+        result = []
+        for row in rows:
+            label = str(row.get("fio") or "")
+            if row.get("program"):
+                label += f" — {row['program']}"
+            result.append({
+                "id": str(row.get("id") or ""),
+                "label": label,
+                "search": " ".join(
+                    str(row.get(k) or "") for k in ("fio", "program", "position")
+                ).lower(),
+            })
+        return result
+
+    app.jinja_env.globals["worker_options"] = worker_options
+    app.jinja_env.globals["instructor_options"] = instructor_options
+
     # -- доступ -----------------------------------------------------------
     @app.before_request
     def _check_local_access():
@@ -191,10 +261,37 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         cat = catalog()
         org_uuid = current_org_uuid()
         entry = cat.get(org_uuid) if org_uuid else None
+
+        brand_color = ""
+        brand_text = "#ffffff"
+        nav_items: list[navigation.NavItem] = []
+        org_heading = ""
+
+        if entry is not None:
+            # Цвет и порядок закладок хранятся в книге, но шапка должна
+            # работать даже при недоступном файле — читаем осторожно.
+            try:
+                book = load_book(entry)
+                brand_color = navigation.normalize_color(
+                    book.org_value("brand_color", entry.color or "#1F4E79")
+                )
+                nav_items = navigation.ordered_items(book.org_value("nav_order"))
+                org_heading = book.org_value("full_name") or book.org_value("name") or entry.name
+            except Exception:
+                brand_color = navigation.normalize_color(entry.color or "#1F4E79")
+                nav_items = navigation.ordered_items("")
+                org_heading = entry.name
+            brand_text = navigation.contrast_text(brand_color)
+
         return {
             "csrf_token": session.get("csrf", ""),
             "organizations": cat.entries,
             "current_org": entry,
+            "brand_color": brand_color,
+            "brand_text": brand_text,
+            "nav_items": nav_items,
+            "org_heading": org_heading,
+            "active_nav": navigation.active_key(request),
             "flash_errors": [],
         }
 
@@ -311,6 +408,20 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         if error:
             return render_template("org_error.html", error=error, entry=entry)
 
+        # Плановая отправка резервной копии: раз в N дней при открытии.
+        # Ошибка почты не мешает работе — только предупреждение.
+        email_note = ""
+        try:
+            mail_result = backups.run_scheduled(book)
+            if mail_result.get("ran"):
+                email_note = (
+                    "Резервная копия отправлена на почту."
+                    if mail_result.get("sent")
+                    else f"Не удалось отправить копию на почту: {mail_result.get('error', '')}"
+                )
+        except Exception:
+            email_note = ""
+
         summary = _book_summary(book)
         visible = [
             (row, info) for row, info in summary["rows"]
@@ -337,6 +448,7 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             instructors=instructor_rows,
             expiring=expiring,
             counts=summary["counts"],
+            email_note=email_note,
         )
 
     @app.get("/trainings")
@@ -346,8 +458,12 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         if error:
             return render_template("org_error.html", error=error, entry=entry)
         summary = _book_summary(book)
-        status = request.args.get("status", "")
+
+        # По умолчанию показываются запланированные: с ними работают чаще всего.
+        status = request.args.get("status", "Запланирован")
         search = (request.args.get("q") or "").strip().lower()
+        sort_key = request.args.get("sort", "plan")
+
         rows = []
         for row, info in summary["rows"]:
             if status and str(row.get("status") or "") != status:
@@ -357,10 +473,21 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             ).lower():
                 continue
             rows.append((row, info))
-        rows.sort(key=lambda pair: pair[0].get("plan_date") or date.min)
+
+        def sort_default(pair):
+            row = pair[0]
+            if sort_key == "plan":
+                return (row.get("plan_date") or date.max, str(row.get("fio") or ""))
+            if sort_key == "fact":
+                return (row.get("fact_date") or date.max, str(row.get("fio") or ""))
+            if sort_key == "fio":
+                return (str(row.get("fio") or "").lower(), row.get("plan_date") or date.max)
+            return (row.get("plan_date") or date.max,)
+
+        rows.sort(key=sort_default)
         return render_template(
             "trainings.html", entry=entry, book=book, rows=rows, summary=summary,
-            status=status, search=search,
+            status=status, search=search, sort=sort_key,
         )
 
     @app.route("/trainings/new", methods=["GET", "POST"])
@@ -369,19 +496,85 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        workers = services.workers(book)
+
+        workers_rows = services.workers(book)
         instructor_rows = services.instructors(book, on=config.today())
         dicts = services.dictionaries(book)
+        program_rows = services.programs(book)
+
+        def render(form, errors=None, message="", details=None):
+            # Подписи для полей с поиском: если ID уже выбран, показываем текст.
+            worker_label = ""
+            selected_worker = services.worker_by_id(book, form.get("worker_id", "") or "")
+            if selected_worker:
+                worker_label = str(selected_worker.get("fio") or "")
+                if selected_worker.get("position"):
+                    worker_label += f" — {selected_worker['position']}"
+            instructor_label = ""
+            chosen = services.instructor_by_id(book, form.get("instructor_id", "") or "")
+            if chosen:
+                instructor_label = str(chosen.get("fio") or "")
+                if chosen.get("program"):
+                    instructor_label += f" — {chosen['program']}"
+            return render_template(
+                "training_new.html", entry=entry, book=book,
+                workers=workers_rows, instructors=instructor_rows, dicts=dicts,
+                program_titles=[services.program_title(r) for r in program_rows],
+                form=form, errors=errors or {}, message=message, details=details,
+                selected_worker_label=worker_label,
+                selected_instructor_label=instructor_label,
+            )
 
         if request.method == "GET":
-            preselected = request.args.get("worker_id", "")
-            return render_template(
-                "training_new.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form={"worker_id": preselected},
-                errors={}, message="",
+            worker_id = request.args.get("worker_id", "")
+            return render(
+                {"worker_id": worker_id, "plan_date": config.today().isoformat()}
             )
 
         form = request.form.to_dict()
+        # Поле поиска присылает скрытый ID; если его нет, пробуем распознать
+        # введённый текст как ФИО (удобно при быстром вводе).
+        if not form.get("worker_id"):
+            typed = (form.get("worker_search") or "").strip().lower()
+            if typed:
+                found = [
+                    w for w in workers_rows
+                    if typed in " ".join(
+                        str(w.get(k) or "") for k in ("fio", "position", "department", "personnel_no")
+                    ).lower()
+                ]
+                if len(found) == 1:
+                    form["worker_id"] = str(found[0]["id"])
+                elif len(found) > 1:
+                    # Несколько совпадений: выбрать за оператора нельзя.
+                    return render(
+                        form,
+                        {"worker_id": f"По запросу «{typed}» найдено несколько работников. "
+                                      "Уточните фамилию или выберите строку из списка."},
+                    )
+        if not form.get("instructor_id"):
+            typed = (form.get("instructor_search") or "").strip().lower()
+            if typed:
+                found = [
+                    i for i in instructor_rows
+                    if typed in " ".join(
+                        str(i.get(k) or "") for k in ("fio", "program", "position")
+                    ).lower()
+                ]
+                if len(found) == 1:
+                    form["instructor_id"] = str(found[0]["id"])
+                elif len(found) > 1:
+                    names = ", ".join(
+                        f"{i.get('fio')} ({i.get('program') or 'без программы'})"
+                        for i in found[:4]
+                    )
+                    return render(
+                        form,
+                        {"instructor_id":
+                            f"По запросу «{typed}» найдено несколько допусков: {names}. "
+                            "Уточните программу или выберите строку из списка."},
+                    )
+
         worker_ids = request.form.getlist("worker_ids") or (
             [form["worker_id"]] if form.get("worker_id") else []
         )
@@ -397,11 +590,7 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         try:
             payload["plan_date"] = _parse_date(form.get("plan_date"))
         except ValidationError as exc:
-            return render_template(
-                "training_new.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form=form,
-                errors={"plan_date": exc.message}, message="",
-            )
+            return render(form, {"plan_date": exc.message})
 
         try:
             if len(worker_ids) > 1:
@@ -424,18 +613,9 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
                 )
             return redirect(url_for("trainings_list"))
         except ValidationError as exc:
-            return render_template(
-                "training_new.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form=form,
-                errors=exc.fields, message=exc.message,
-                details=exc.details,
-            )
+            return render(form, exc.fields, exc.message, exc.details)
         except AppError as exc:
-            return render_template(
-                "training_new.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form=form, errors={},
-                message=exc.message, details=exc.details,
-            )
+            return render(form, {}, exc.message, exc.details)
 
     @app.route("/register", methods=["GET", "POST"])
     def register():
@@ -502,9 +682,13 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
                 instructors=services.instructors(book, on=config.today()),
                 fact_date=payload["fact_date"],
             )
+        trainer = services.instructor_by_id(
+            book, str(result["training"].get("instructor_id") or "")
+        )
         return render_template(
             "register_done.html", entry=entry, book=book,
             training=result["training"], next_plan=result.get("next_plan"),
+            instructor_position=str((trainer or {}).get("program") or ""),
         )
 
     @app.route("/manual", methods=["GET", "POST"])
@@ -519,29 +703,32 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         instructor_rows = services.instructors(book, on=config.today())
         dicts = services.dictionaries(book)
 
-        if request.method == "GET":
+        def render_manual(form, errors=None, message="", details=None, plans_list=None):
+            selected_worker_label = ""
+            chosen_worker = services.worker_by_id(book, form.get("worker_id", "") or "")
+            if chosen_worker:
+                selected_worker_label = str(chosen_worker.get("fio") or "")
+                if chosen_worker.get("position"):
+                    selected_worker_label += f" — {chosen_worker['position']}"
             return render_template(
                 "manual.html", entry=entry, book=book, workers=workers,
                 instructors=instructor_rows, dicts=dicts,
-                form={"fact_date": config.today().isoformat()}, errors={}, message="",
-                plans=[],
+                form=form, errors=errors or {}, message=message, details=details,
+                plans=plans_list or [],
+                selected_worker_label=selected_worker_label,
             )
+
+        if request.method == "GET":
+            return render_manual({"fact_date": config.today().isoformat()})
 
         form = request.form.to_dict()
         try:
             fact = _parse_date(form.get("fact_date"))
         except ValidationError as exc:
             form["fact_date"] = ""
-            return render_template(
-                "manual.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form=form,
-                errors={"fact_date": exc.message}, message="", plans=[],
-            )
+            return render_manual(form, {"fact_date": exc.message})
         payload = {
             "worker_id": form.get("worker_id", ""),
-            "new_worker_fio": form.get("new_worker_fio", ""),
-            "new_worker_position": form.get("new_worker_position", ""),
-            "new_worker_department": form.get("new_worker_department", ""),
             "type": form.get("type", ""),
             "program": form.get("program", ""),
             "reason": form.get("reason", ""),
@@ -563,12 +750,8 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             allow_similar=bool(form.get("allow_similar")),
         )
         if error:
-            return render_template(
-                "manual.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form=form,
-                errors=error["fields"], message=error["message"],
-                details=error.get("details") or [], plans=plans,
-            )
+            return render_manual(form, error["fields"], error["message"],
+                                 error.get("details") or [], plans)
         return render_template(
             "manual_done.html", entry=entry, book=book,
             training=result["training"], next_plan=result.get("next_plan"),
@@ -695,16 +878,56 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        return render_template("instructors.html", entry=entry, book=book,
-                               rows=services.instructors(book, on=None),
-                               dicts=services.dictionaries(book))
 
-    @app.post("/instructors/new")
+        state = request.args.get("state", "active")
+        search = (request.args.get("q") or "").strip().lower()
+        include_revoked = state in ("all", "revoked")
+        rows = services.instructors(book, include_revoked=include_revoked)
+        if state == "revoked":
+            rows = [r for r in rows if str(r.get("status") or "") == "Аннулирован"]
+        if search:
+            rows = [
+                r for r in rows
+                if search in " ".join(
+                    str(r.get(k) or "") for k in ("fio", "position", "program", "types")
+                ).lower()
+            ]
+
+        deputy_names = {}
+        for row in book.table("Инструктирующие").rows:
+            deputy_id = str(row.get("deputy_id") or "")
+            if deputy_id:
+                deputy = book.table("Инструктирующие").by_key("id", deputy_id)
+                if deputy:
+                    deputy_names[str(row.get("id"))] = f"{deputy.get('fio')}"
+
+        return render_template(
+            "instructors.html", entry=entry, book=book, rows=rows,
+            state=state, search=search,
+            deputy_names=deputy_names,
+            revoke_reasons=services.instructor_revoke_reasons(book),
+            without_deputy=services.instructors_without_deputy(book) if state == "active" else [],
+            dicts=services.dictionaries(book),
+            warning=request.args.get("warning", ""),
+        )
+
+    @app.route("/instructors/new", methods=["GET", "POST"])
     def instructor_new():
         cat, entry = require_org()
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
+
+        dicts = services.dictionaries(book)
+        program_rows = services.programs(book)
+        people = services.instructors(book, include_revoked=True)
+
+        if request.method == "GET":
+            return render_template(
+                "instructor_new.html", entry=entry, book=book, dicts=dicts,
+                programs=program_rows, people=people, form={}, errors={}, message="",
+            )
+
         form = request.form.to_dict()
         data = {
             "fio": form.get("fio", ""),
@@ -719,12 +942,172 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             data["valid_from"] = _parse_date(form.get("valid_from"))
             data["valid_to"] = _parse_date(form.get("valid_to"))
         except ValidationError as exc:
-            flash(exc.message, "error")
-            return redirect(url_for("instructors_list"))
-        _, error = safe(services.add_instructor, book, data)
-        flash("Допуск добавлен." if not error else error["message"],
+            return render_template(
+                "instructor_new.html", entry=entry, book=book, dicts=dicts,
+                programs=program_rows, people=people, form=form,
+                errors={"valid_to": exc.message}, message="",
+            )
+        row, error = safe(services.add_instructor, book, data)
+        if error:
+            return render_template(
+                "instructor_new.html", entry=entry, book=book, dicts=dicts,
+                programs=program_rows, people=people, form=form,
+                errors=error["fields"], message=error["message"],
+                details=error.get("details"),
+            )
+        flash(f"Допуск добавлен: {row['fio']}.", "ok")
+        return redirect(url_for("instructors_list"))
+
+    @app.post("/instructors/<row_id>/revoke")
+    def instructor_revoke(row_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        try:
+            revoke_date = _parse_date(form.get("revoke_date")) or config.today()
+        except ValidationError:
+            revoke_date = config.today()
+        _, error = safe(services.revoke_instructor, book, row_id,
+                        reason=form.get("reason", ""), revoke_date=revoke_date)
+        flash("Допуск аннулирован." if not error else error["message"],
               "ok" if not error else "error")
         return redirect(url_for("instructors_list"))
+
+    @app.post("/instructors/<row_id>/restore")
+    def instructor_restore(row_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        _, error = safe(services.restore_instructor, book, row_id)
+        flash("Допуск восстановлен." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("instructors_list", state="all"))
+
+    @app.post("/instructors/<row_id>/deputy")
+    def instructor_deputy(row_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        _, error = safe(services.set_deputy, book, row_id, form.get("deputy_id", ""))
+        flash("Заместитель назначен." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("instructors_list"))
+
+    # -- инструкции и программы -------------------------------------------
+    @app.get("/programs")
+    def programs_list():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        show_all = request.args.get("all") == "1"
+        search = (request.args.get("q") or "").strip().lower()
+        rows = services.programs(book, only_active=not show_all)
+        if search:
+            rows = [
+                r for r in rows
+                if search in " ".join(
+                    str(r.get(k) or "") for k in ("number", "title", "description", "approved_by")
+                ).lower()
+            ]
+        return render_template(
+            "programs.html", entry=entry, book=book, rows=rows,
+            show_all=show_all, search=search,
+            active_count=len(services.programs(book)),
+        )
+
+    @app.route("/programs/new", methods=["GET", "POST"])
+    def program_new():
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+
+        if request.method == "GET":
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form={}, errors={}, message="", row=None)
+
+        form = request.form.to_dict()
+        data = {
+            "number": form.get("number", ""),
+            "title": form.get("title", ""),
+            "description": form.get("description", ""),
+            "approved_by": form.get("approved_by", ""),
+            "approved_at": None,
+            "status": form.get("status", "Действует"),
+            "replaced_by": form.get("replaced_by", ""),
+            "note": form.get("note", ""),
+        }
+        try:
+            data["approved_at"] = _parse_date(form.get("approved_at"))
+        except ValidationError as exc:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors={"approved_at": exc.message},
+                                   message="", row=None)
+        row, error = safe(services.add_program, book, data)
+        if error:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors=error["fields"],
+                                   message=error["message"], row=None)
+        flash("Инструкция добавлена.", "ok")
+        return redirect(url_for("programs_list"))
+
+    @app.route("/programs/<program_id>/edit", methods=["GET", "POST"])
+    def program_edit(program_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        row = book.table("Инструкции").by_key("id", program_id)
+        if row is None:
+            flash("Инструкция не найдена.", "error")
+            return redirect(url_for("programs_list"))
+
+        if request.method == "GET":
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form={}, errors={}, message="", row=row)
+
+        form = request.form.to_dict()
+        data = {
+            "number": form.get("number", ""),
+            "title": form.get("title", ""),
+            "description": form.get("description", ""),
+            "approved_by": form.get("approved_by", ""),
+            "approved_at": None,
+            "status": form.get("status", "Действует"),
+            "replaced_by": form.get("replaced_by", ""),
+            "note": form.get("note", ""),
+        }
+        try:
+            data["approved_at"] = _parse_date(form.get("approved_at"))
+        except ValidationError as exc:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors={"approved_at": exc.message},
+                                   message="", row=row)
+        _, error = safe(services.update_program, book, program_id, data)
+        if error:
+            return render_template("program_form.html", entry=entry, book=book,
+                                   form=form, errors=error["fields"],
+                                   message=error["message"], row=row)
+        flash("Изменения сохранены.", "ok")
+        return redirect(url_for("programs_list"))
+
+    @app.post("/programs/<program_id>/deactivate")
+    def program_deactivate(program_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        _, error = safe(services.deactivate_program, book, program_id,
+                        reason=request.form.get("reason", ""))
+        flash("Инструкция переведена в состояние «Не действует»." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("programs_list"))
 
     @app.route("/print", methods=["GET", "POST"])
     def print_forms():
@@ -737,8 +1120,14 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             summary = _book_summary(book)
             planned_rows = [(r, i) for r, i in summary["rows"] if r.get("status") == "Запланирован"]
             planned_rows.sort(key=lambda p: p[0].get("plan_date") or date.min)
-            return render_template("print.html", entry=entry, book=book,
-                                   rows=planned_rows, result=None, mode="filled")
+            return render_template(
+                "print.html", entry=entry, book=book,
+                rows=planned_rows, result=None, mode="filled",
+                templates=docx_templates.discover(),
+                templates_dir=str(docx_templates.templates_dir()),
+                using_template=docx_templates.pick_template(
+                    config.CARDS_PER_PAGE) is not None,
+            )
 
         mode = request.form.get("mode", "filled")
         try:
@@ -755,12 +1144,26 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             except ValueError:
                 count_int = 1
             result, error = safe(
-                printing.print_blank_grid, book,
-                training_type=training_type, count=count_int, per_page=per_page,
+                printing_template.print_blank_template, book,
+                training_type=training_type, count=count_int,
+                cards_per_page=per_page,
             )
+            if result is None and not error:
+                # Шаблона нет — печатаем встроенный бланк.
+                result, error = safe(
+                    printing.print_blank_grid, book,
+                    training_type=training_type, count=count_int, per_page=per_page,
+                )
         else:
             ids = request.form.getlist("training_ids")
-            result, error = safe(printing.print_filled_grid, book, ids, per_page=per_page)
+            result, error = safe(
+                printing_template.print_filled_template, book, ids,
+                cards_per_page=per_page,
+            )
+            if result is None and not error:
+                result, error = safe(
+                    printing.print_filled_grid, book, ids, per_page=per_page,
+                )
 
         if error:
             summary = _book_summary(book)
@@ -783,12 +1186,26 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
 
     @app.get("/archive")
     def archive():
+        """Архив: дела и пакеты с количеством документов внутри."""
         cat, entry = require_org()
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        return render_template("archive.html", entry=entry, book=book,
-                               rows=book.table("Архив").rows)
+
+        # По умолчанию — только открытые: закрытые пакеты нужны реже.
+        show_closed = request.args.get("closed") == "1"
+        rows = reports.pack_rows(book)
+        if not show_closed:
+            rows = [r for r in rows if str(r.get("status") or "") == "Открыт"]
+
+        cases = reports.case_rows(book)
+        open_count = len([r for r in reports.pack_rows(book) if r.get("status") == "Открыт"])
+        closed_count = len([r for r in reports.pack_rows(book) if r.get("status") == "Закрыт"])
+
+        return render_template(
+            "archive.html", entry=entry, book=book, rows=rows, cases=cases,
+            show_closed=show_closed, open_count=open_count, closed_count=closed_count,
+        )
 
     @app.post("/archive/close-pack")
     def close_pack():
@@ -805,70 +1222,78 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         return redirect(url_for("archive"))
 
     # -- отчёты ------------------------------------------------------------
+    @app.get("/trainings/<training_id>")
+    def training_card(training_id: str):
+        """Карточка инструктажа: данные, действия, предупреждения."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        data, error = safe(services.training_card_data, book, training_id)
+        if error:
+            flash(error["message"], "error")
+            return redirect(url_for("trainings_list"))
+        return render_template(
+            "training_card.html", entry=entry, book=book,
+            available_instructors=services.instructors(book),
+            program_titles=[services.program_title(r) for r in services.programs(book)],
+            worker_id=str(data["training"].get("worker_id") or ""),
+            errors={},
+            **data,
+        )
+
+    @app.post("/trainings/<training_id>/update")
+    def training_update(training_id: str):
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        try:
+            plan_date = _parse_date(form.get("plan_date"))
+        except ValidationError as exc:
+            data, _ = safe(services.training_card_data, book, training_id)
+            return render_template(
+                "training_card.html", entry=entry, book=book,
+                available_instructors=services.instructors(book),
+                program_titles=[services.program_title(r) for r in services.programs(book)],
+                worker_id=str((data or {}).get("training", {}).get("worker_id") or ""),
+                errors={"plan_date": exc.message},
+                **(data or {}),
+            )
+        payload = {
+            "plan_date": plan_date,
+            "type": form.get("type", ""),
+            "instructor_id": form.get("instructor_id", ""),
+            "program": form.get("program", ""),
+            "reason": form.get("reason", ""),
+        }
+        _, error = safe(services.update_plan, book, training_id, payload,
+                        reason=form.get("change_reason", ""))
+        if error:
+            flash(error["message"], "error")
+        else:
+            flash("Изменения сохранены.", "ok")
+        return redirect(url_for("training_card", training_id=training_id))
+
     @app.post("/trainings/<training_id>/cancel")
     def training_cancel(training_id: str):
-        """Отменить запланированный инструктаж с указанием причины."""
+        """Отмена инструктажа с обязательной причиной."""
         cat, entry = require_org()
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        reason_text = request.form.get("reason", "").strip()
-        _, error = safe(services.cancel_plan, book, training_id, reason=reason_text)
-        flash(
-            "План отменён." if not error else error["message"],
-            "ok" if not error else "error",
-        )
-        return redirect(url_for("trainings_list"))
-
-    @app.route("/trainings/<training_id>/edit", methods=["GET", "POST"])
-    def training_edit(training_id: str):
-        """Исправить проведённую запись: причина обязательна, номера не меняются."""
-        cat, entry = require_org()
-        book, error = safe(load_book, entry)
-        if error:
-            return render_template("org_error.html", error=error, entry=entry)
-        row = book.table("Инструктажи").by_key("id", training_id)
-        if row is None:
-            flash("Запись не найдена.", "error")
-            return redirect(url_for("trainings_list"))
-
-        if request.method == "GET":
-            return render_template(
-                "training_edit.html", entry=entry, book=book, row=row,
-                errors={}, message="",
-            )
-
         form = request.form.to_dict()
-        reason_text = (form.get("change_reason") or "").strip()
-        if not reason_text:
-            return render_template(
-                "training_edit.html", entry=entry, book=book, row=row,
-                errors={"reason": "Укажите основание изменения."},
-                message="Проверьте заполнение формы.",
-            )
-        # Разрешено исправлять описательные поля; номера и вид не меняются.
-        before = {k: str(row.get(k) or "") for k in ("fio", "position", "department", "program", "reason", "note")}
-        for key in ("fio", "position", "department", "program", "reason", "note"):
-            if key in form:
-                row[key] = form.get(key, "").strip()
-        row["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
-        after = {k: str(row.get(k) or "") for k in before}
-        changed = {k: {"before": before[k], "after": after[k]} for k in before if before[k] != after[k]}
-        _, error = safe(
-            __import__("ot_registry.excel_store", fromlist=["save_book"]).save_book,
-            book,
-            action="training_edit",
-            entity="Инструктажи",
-            entity_id=training_id,
-            reason=reason_text,
-            details={"changed": changed},
-        )
+        try:
+            cancel_date = _parse_date(form.get("cancel_date")) or config.today()
+        except ValidationError:
+            cancel_date = config.today()
+        _, error = safe(services.cancel_training, book, training_id,
+                        reason=form.get("reason", ""), cancel_date=cancel_date)
+        flash("Инструктаж отменён." if not error else error["message"],
+              "ok" if not error else "error")
         if error:
-            return render_template(
-                "training_edit.html", entry=entry, book=book, row=row,
-                errors={}, message=error["message"],
-            )
-        flash("Запись исправлена, основание сохранено в журнале.", "ok")
+            return redirect(url_for("training_card", training_id=training_id))
         return redirect(url_for("trainings_list"))
 
     @app.get("/reports")
@@ -1049,7 +1474,17 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        return render_template("settings.html", entry=entry, book=book)
+        return render_template(
+            "settings.html",
+            entry=entry,
+            book=book,
+            nav_items=navigation.ordered_items(book.org_value("nav_order")),
+            nav_full=[navigation.ITEM_BY_KEY[k] for k in navigation.DEFAULT_ORDER],
+            brand_colors=navigation.BRAND_COLORS,
+            current_color=navigation.normalize_color(
+                book.org_value("brand_color", entry.color or "#1F4E79")
+            ),
+        )
 
     @app.post("/settings")
     def settings_save():
@@ -1076,12 +1511,151 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
               "ok" if not error else "error")
         return redirect(url_for("settings_page"))
 
+    @app.post("/settings/brand")
+    def settings_brand():
+        """Цвет фирмы: влияет на шапку и активную закладку."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        color = navigation.normalize_color(form.get("brand_color", ""), "#1F4E79")
+        book.set_org_value("brand_color", color)
+        entry.color = color
+        cat.save()
+        from .excel_store import save_book
+
+        _, error = safe(save_book, book, action="settings_brand",
+                        reason=f"Изменён цвет фирмы: {color}")
+        flash("Цвет фирмы сохранён." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("settings_page"))
+
+    @app.post("/settings/nav")
+    def settings_nav():
+        """Порядок закладок: вверх/вниз и сброс."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        current = book.org_value("nav_order")
+        action = form.get("action", "")
+        if action == "reset":
+            updated = ""
+            note = "Порядок закладок сброшен"
+        else:
+            key = form.get("key", "")
+            direction = "up" if action == "up" else "down"
+            updated = navigation.move(current, key, direction)
+            item = navigation.ITEM_BY_KEY.get(key)
+            note = f"Закладка «{item.label if item else key}» перемещена"
+        book.set_org_value("nav_order", updated)
+        from .excel_store import save_book
+
+        _, error = safe(save_book, book, action="settings_nav", reason=note)
+        flash(note if not error else error["message"], "ok" if not error else "error")
+        return redirect(url_for("settings_page") + "#nav")
+
+    # -- резервное копирование -------------------------------------------
+    @app.route("/backup", methods=["GET", "POST"])
+    def backup_page():
+        """Настройки резервирования: локальные копии и отправка на почту."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+
+        if request.method == "POST":
+            form = request.form.to_dict()
+            current = backups.load_settings(book)
+            try:
+                current.keep_local = int(form.get("keep_local") or current.keep_local)
+                current.email_every_days = int(
+                    form.get("email_every_days") or current.email_every_days
+                )
+            except ValueError:
+                pass
+            current.email_enabled = bool(form.get("email_enabled"))
+            current.smtp_preset = form.get("smtp_preset", current.smtp_preset)
+            current.smtp_host = (form.get("smtp_host") or "").strip()
+            try:
+                current.smtp_port = int(form.get("smtp_port") or current.resolved_port)
+            except ValueError:
+                current.smtp_port = current.resolved_port
+            current.smtp_ssl = bool(form.get("smtp_ssl"))
+            current.sender = (form.get("sender") or "").strip()
+            current.recipient = (form.get("recipient") or "").strip()
+            current.username = (form.get("username") or "").strip()
+
+            action = form.get("action", "save")
+            message, kind = "", "ok"
+            try:
+                backups.validate_settings(current)
+            except ValidationError as exc:
+                message, kind = exc.message, "error"
+            else:
+                password = form.get("mail_password") or ""
+                backups.save_settings(book, current, password=password)
+                if action == "test":
+                    result = backups.send_email(book, current, reason="проверка настроек")
+                    if result["sent"]:
+                        message = f"Проверочное письмо отправлено на {current.recipient}."
+                    else:
+                        message = f"Отправка не удалась: {result['error']}"
+                        kind = "error"
+                elif action == "now":
+                    result = backups.send_email(book, current, reason="по команде оператора")
+                    message = ("Копия отправлена на " + current.recipient
+                               if result["sent"] else f"Отправка не удалась: {result['error']}")
+                    kind = "ok" if result["sent"] else "error"
+                else:
+                    message = "Настройки резервирования сохранены."
+            flash(message, kind)
+            return redirect(url_for("backup_page"))
+
+        settings_data = backups.load_settings(book)
+        folder = book.backups_dir()
+        files = sorted(folder.glob("registry_*.xlsx"), reverse=True) if folder.exists() else []
+        listing = []
+        for path in files[:20]:
+            stat = path.stat()
+            listing.append({
+                "name": path.name,
+                "size": f"{stat.st_size / 1024:.0f} КБ",
+                "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M"),
+            })
+        return render_template(
+            "backup.html", entry=entry, book=book,
+            settings=settings_data,
+            presets=backups.MAIL_PRESETS,
+            has_password=bool(backups.read_password(book)),
+            status_text=backups.email_status(settings_data),
+            backups=listing,
+            total=len(files),
+            next_email_in=_days_until_next(settings_data),
+        )
+
+    @app.post("/backup/local")
+    def backup_local():
+        """Создать локальную копию по команде оператора."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        path, error = safe(backups.make_local_copy, book, reason="по команде оператора")
+        flash(f"Копия создана: {path.name}" if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("backup_page"))
+
     @app.get("/journal")
     def journal_view():
         cat, entry = require_org()
         from .journal import read_events
 
-        events = read_events(entry.resolve(base).parent / "logs", limit=200)
+        # Оператору нужны последние действия: 50 достаточно, чтобы понять,
+        # что происходило, и не листать историю за месяцы.
+        events = read_events(entry.resolve(base).parent / "logs", limit=50)
         return render_template("journal.html", entry=entry, events=events)
 
     @app.get("/about")

@@ -9,35 +9,77 @@
 
 <div class="panel">
   <h2 style="margin-top:0">{{ training.fio }}</h2>
-  <p class="muted small">{{ training.type }} · факт {{ training.fact_date | ru_date }} ·
-     внесено {{ training.reg_date | ru_date }}</p>
+  <p class="muted small">
+    {{ training.type }} · факт {{ training.fact_date | ru_date }} ·
+    внесено {{ training.reg_date | ru_date }}
+  </p>
 
-  <h3>Впишите номера в оригинал бланка</h3>
+  <div class="instructor-block" style="margin-top:12px">
+    <div class="instructor-name">{{ training.instructor_fio or 'инструктирующий не указан' }}</div>
+    {% if instructor_position %}
+      <div class="instructor-program">{{ instructor_position }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:0">Впишите номера в оригинал бланка</h3>
+  <p class="small muted">
+    В базе они хранятся с разрядностью ({{ training.number_ot }}), а вписывать
+    удобнее коротко — без ведущих нулей.
+  </p>
   <table class="data">
     <tbody>
-      <tr><th style="width:40%">Сквозной номер</th><td class="number-print">{{ training.number_ot }}</td></tr>
-      <tr><th>Номер по виду</th><td class="number-print">{{ training.number_type }}</td></tr>
-      <tr><th>Дело / пакет</th><td class="number-print">{{ training.case_id }} / {{ training.pack_id }}</td></tr>
+      <tr><th style="width:40%">Сквозной номер</th>
+          <td class="number-print">{{ training.number_ot | num_short }}</td></tr>
+      <tr><th>Номер по виду</th>
+          <td class="number-print">{{ training.number_type | num }}</td></tr>
+      <tr><th>Дело</th><td class="number-print">{{ training.case_id | num }}</td></tr>
+      <tr><th>Пакет</th><td class="number-print">{{ training.pack_id | num }}</td></tr>
       <tr><th>Код бланка</th><td class="mono">{{ training.code | format_code }}</td></tr>
-      <tr><th>Куда подшить</th><td>{{ training.case_id }}, пакет {{ training.pack_id }}</td></tr>
+      <tr><th>Куда подшить</th>
+          <td>дело {{ training.case_id | num }}, пакет {{ training.pack_id | num }}</td></tr>
     </tbody>
   </table>
 </div>
 
 {% if next_plan %}
 <div class="panel">
-  <h3 style="margin-top:0">Создан следующий повторный инструктаж</h3>
-  <p>Плановая дата: <strong>{{ next_plan.plan_date | ru_date }}</strong>,
-     код бланка <span class="mono">{{ next_plan.code | format_code }}</span>.</p>
-  <p class="muted small">
-    Дата рассчитана от фактического проведения с учётом периодичности. При необходимости
-    перенесите её вручную и зафиксируйте основание.
+  <h3 style="margin-top:0">
+    Создан следующий повторный инструктаж
+    <span title="Дата рассчитана автоматически">✏️</span>
+  </h3>
+  <p class="small muted">
+    Дата рассчитана от фактического проведения с учётом периодичности.
+    Её можно сразу изменить, если по правилам организации срок другой.
+  </p>
+  <form method="post" action="{{ url_for('training_update', training_id=next_plan.id) }}"
+        data-once class="row" style="align-items:flex-end">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="type" value="{{ next_plan.type }}">
+    <div class="field" style="flex:0 0 200px">
+      <label for="plan_date">Плановая дата</label>
+      <input type="date" id="plan_date" name="plan_date"
+             value="{{ next_plan.plan_date.isoformat() if next_plan.plan_date else '' }}">
+    </div>
+    <div class="field">
+      <label for="change_reason">Основание изменения</label>
+      <input type="text" id="change_reason" name="change_reason"
+             placeholder="например: периодичность по приказу № 5">
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <button type="submit" class="secondary">Перенести дату</button>
+    </div>
+  </form>
+  <p class="small" style="margin-top:10px">
+    Код бланка следующего плана: <span class="mono">{{ next_plan.code | format_code }}</span>
   </p>
 </div>
 {% endif %}
 
 <div class="actions">
   <a class="button" href="{{ url_for('register') }}">Зарегистрировать ещё</a>
+  <a class="button secondary" href="{{ url_for('training_card', training_id=training.id) }}">Открыть карточку</a>
   <a class="button secondary" href="{{ url_for('dashboard') }}">К срокам</a>
 </div>
 {% endblock %}

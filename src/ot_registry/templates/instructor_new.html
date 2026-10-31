@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Добавить допуск — {{ entry.name }}{% endblock %}
+{% block content %}
+<h1>Добавить допуск инструктирующего</h1>
+<p class="muted small">
+  Допуск — это право проводить инструктаж по конкретной программе или инструкции.
+  Один человек может иметь несколько допусков: они заводятся отдельными записями.
+</p>
+
+{% if message %}<div class="flash flash-error">{{ message }}
+  {% if details %}<ul class="errors">{% for d in details %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+</div>{% endif %}
+
+<form method="post" data-once class="panel">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+  <div class="grid grid-2">
+    <div class="field {% if errors.fio %}field-error{% endif %}">
+      <label for="fio">ФИО *</label>
+      <input type="text" id="fio" name="fio" required value="{{ form.fio or '' }}"
+             data-suggestions='{{ people | map(attribute="fio") | list | tojson }}'>
+      {% if errors.fio %}<div class="error-text">{{ errors.fio }}</div>{% endif %}
+      <div class="hint">Начните вводить — появятся уже добавленные инструктирующие.</div>
+    </div>
+
+    <div class="field">
+      <label for="position">Должность</label>
+      <input type="text" id="position" name="position" value="{{ form.position or '' }}"
+             data-suggestions='{{ dicts.position | tojson }}'>
+    </div>
+
+    <div class="field">
+      <label for="program">Программа / основание</label>
+      <input type="text" id="program" name="program" value="{{ form.program or '' }}"
+             data-suggestions='{{ programs | map(attribute="title") | list | tojson }}'>
+      <div class="hint">
+        Список берётся из раздела «Инструкции». Если нужной нет — добавьте её там.
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Разрешённые виды инструктажа</label>
+      {% for t in training_types %}
+        <label class="checkbox-row" style="margin:2px 0">
+          <input type="checkbox" name="types" value="{{ t }}"> <span>{{ t }}</span>
+        </label>
+      {% endfor %}
+      <div class="hint">Если ничего не отмечено, допуск действует для всех видов.</div>
+    </div>
+
+    <div class="field">
+      <label for="valid_from">Действует с</label>
+      <input type="date" id="valid_from" name="valid_from" value="{{ form.valid_from or '' }}">
+    </div>
+
+    <div class="field {% if errors.valid_to %}field-error{% endif %}">
+      <label for="valid_to">Действует по</label>
+      <input type="date" id="valid_to" name="valid_to" value="{{ form.valid_to or '' }}">
+      {% if errors.valid_to %}<div class="error-text">{{ errors.valid_to }}</div>{% endif %}
+      <div class="hint">Оставьте пустым, если срок не установлен.</div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="note">Примечание</label>
+    <input type="text" id="note" name="note" value="{{ form.note or '' }}">
+  </div>
+
+  <div class="actions">
+    <button type="submit">Добавить допуск</button>
+    <a class="button secondary" href="{{ url_for('instructors_list') }}">Отмена</a>
+  </div>
+</form>
+{% endblock %}

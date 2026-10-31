@@ -24,17 +24,15 @@
   <h3>Что написано на бланке</h3>
   <div class="grid grid-2">
     <div class="field {% if errors.worker_id %}field-error{% endif %}">
-      <label for="worker_id">Работник</label>
-      <select id="worker_id" name="worker_id">
-        <option value="">— выбрать из списка —</option>
-        {% for w in workers %}
-        <option value="{{ w.id }}" {% if form.worker_id == w.id %}selected{% endif %}>
-          {{ w.fio }} — {{ w.position }}
-        </option>
-        {% endfor %}
-      </select>
+      <label for="worker_search">Работник *</label>
+      <div data-picker='{{ worker_options(workers) | tojson }}' class="autocomplete-host">
+        <input type="text" id="worker_search" data-picker-input
+               value="{{ selected_worker_label or '' }}"
+               placeholder="начните вводить фамилию" autocomplete="off">
+        <input type="hidden" name="worker_id" value="{{ form.worker_id or '' }}">
+      </div>
       {% if errors.worker_id %}<div class="error-text">{{ errors.worker_id }}</div>{% endif %}
-      <div class="hint">Если работника ещё нет в книге, заполните поля ниже.</div>
+      <div class="hint">Поиск по фамилии, должности, подразделению или табельному.</div>
     </div>
 
     <div class="field {% if errors.type %}field-error{% endif %}">
@@ -94,26 +92,12 @@
     </div>
   </div>
 
-  <h3>Если работника нет в книге</h3>
-  <div class="grid grid-3">
-    <div class="field">
-      <label for="new_worker_fio">ФИО</label>
-      <input type="text" id="new_worker_fio" name="new_worker_fio" value="{{ form.new_worker_fio or '' }}">
-    </div>
-    <div class="field">
-      <label for="new_worker_position">Должность</label>
-      <input type="text" id="new_worker_position" name="new_worker_position"
-             value="{{ form.new_worker_position or '' }}" data-suggestions='{{ dicts.position | tojson }}'>
-    </div>
-    <div class="field">
-      <label for="new_worker_department">Подразделение</label>
-      <input type="text" id="new_worker_department" name="new_worker_department"
-             value="{{ form.new_worker_department or '' }}" data-suggestions='{{ dicts.department | tojson }}'>
-    </div>
-  </div>
-  <div class="hint">
-    Не придумывайте кадровые данные, которых нет на бланке. Дату приёма и табельный
-    можно дополнить позже в карточке работника.
+  <div class="help">
+    Нет нужного работника в списке? Добавьте его через
+    <a href="{{ url_for('worker_new') }}">раздел «Работники»</a> — там
+    сохранятся дата рождения и кадровые данные, обязательные для регистрации.
+    Здесь работники не создаются: так не появляются случайные должности
+    и подразделения.
   </div>
 
   {% if plans %}

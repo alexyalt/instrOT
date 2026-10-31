@@ -3,6 +3,72 @@
 {% block content %}
 <h1>Настройки организации</h1>
 
+<div class="panel">
+  <h2 style="margin-top:0">Цвет фирмы</h2>
+  <p class="small muted">
+    Цвет используется для шапки и подсветки активной закладки. У разных
+    организаций можно задать разные цвета, чтобы визуально не перепутать,
+    с какой книгой идёт работа.
+  </p>
+  <form method="post" action="{{ url_for('settings_brand') }}" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="field" style="max-width:440px">
+      <label for="brand_color">Цвет</label>
+      <div class="row" style="align-items:center;gap:10px">
+        <input type="color" id="brand_color" name="brand_color" value="{{ current_color }}"
+               style="width:64px;height:38px;padding:2px;border:1px solid var(--line);border-radius:6px">
+        <select id="brand_color_preset" style="flex:1"
+                onchange="document.getElementById('brand_color').value=this.value">
+          {% for hex_value, title in brand_colors %}
+            <option value="{{ hex_value }}" {% if hex_value|lower == current_color %}selected{% endif %}>
+              {{ title }} ({{ hex_value }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="hint">Можно выбрать готовый оттенок или задать свой.</div>
+    </div>
+    <div class="actions"><button type="submit">Сохранить цвет</button></div>
+  </form>
+</div>
+
+<div class="panel" id="nav">
+  <h2 style="margin-top:0">Порядок закладок</h2>
+  <p class="small muted">
+    Закладки можно расположить в удобном порядке — он запоминается для этой
+    организации. Скрыть закладку нельзя: через неё можно вернуться назад.
+  </p>
+  <table class="data">
+    <thead><tr><th>Закладка</th><th>Назначение</th><th>Порядок</th></tr></thead>
+    <tbody>
+      {% for item in nav_items %}
+      <tr>
+        <td><strong>{{ item.label }}</strong></td>
+        <td class="small muted">{{ item.note }}</td>
+        <td>
+          <form method="post" action="{{ url_for('settings_nav') }}" class="inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="key" value="{{ item.key }}">
+            <button type="submit" name="action" value="up" class="ghost"
+                    style="padding:2px 8px;font-size:13px"
+                    {% if loop.first %}disabled{% endif %}>↑</button>
+            <button type="submit" name="action" value="down" class="ghost"
+                    style="padding:2px 8px;font-size:13px"
+                    {% if loop.last %}disabled{% endif %}>↓</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="{{ url_for('settings_nav') }}" class="actions" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="reset">
+    <button type="submit" class="secondary">Вернуть исходный порядок</button>
+  </form>
+</div>
+
+
 <form method="post" data-once class="panel">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   <h2 style="margin-top:0">Реквизиты для бланков</h2>

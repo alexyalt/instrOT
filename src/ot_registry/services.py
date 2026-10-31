@@ -42,22 +42,84 @@ def _org_period(book: Book) -> int:
 
 
 
-def workers(book: Book, *, only_active: bool = True) -> list[dict[str, Any]]:
-    rows = book.table("Работники").rows
+def workers(book: Book, *, only_active: bool = True,
+            include_external: bool = False) -> list[dict[str, Any]]:
+    """Список работников.
+
+    `only_active` — только действующие (работает, посетитель, подрядчик).
+    `include_external` — добавить внешних (посетители, подрядчики); по умолчанию
+    они исключаются, потому что им планируется только вводный инструктаж.
+    """
+    rows = list(book.table("Работники").rows)
     if only_active:
-        rows = [r for r in rows if (r.get("status") or "Работает") == "Работает"]
+        rows = [r for r in rows if worker_is_active(r)]
+    if not include_external:
+        rows = [r for r in rows if str(r.get("status") or "") not in config.EXTERNAL_WORKER_STATUSES]
     return sorted(rows, key=lambda r: str(r.get("fio") or "").lower())
+
+
+def worker_is_active(row: dict[str, Any]) -> bool:
+    status = str(row.get("status") or "Работает")
+    return status in config.ACTIVE_WORKER_STATUSES
+
+
+def worker_is_external(row: dict[str, Any]) -> bool:
+    return str(row.get("status") or "") in config.EXTERNAL_WORKER_STATUSES
+
+
+def allowed_types_for_worker(worker: dict[str, Any]) -> list[str]:
+    """Какие виды инструктажа допустимы для работника.
+
+    Внешним (посетители, подрядчики) проводится только вводный инструктаж.
+    """
+    if worker_is_external(worker):
+        return ["Вводный"]
+    return list(config.TRAINING_TYPES)
 
 
 def worker_by_id(book: Book, worker_id: str) -> dict[str, Any] | None:
     return book.table("Работники").by_key("id", worker_id)
 
 
-def instructors(book: Book, *, on: date | None = None) -> list[dict[str, Any]]:
+def instructors(book: Book, *, on: date | None = None,
+                include_revoked: bool = False) -> list[dict[str, Any]]:
+    """Допуски инструктирующих.
+
+    По умолчанию — только действующие: не аннулированные, со сроком не истёкшим
+    и у которых работник не уволен.
+    """
     rows = list(book.table("Инструктирующие").rows)
-    if on is not None:
-        rows = [r for r in rows if deadlines.instructor_valid(r.get("valid_to"), on)]
-    return sorted(rows, key=lambda r: str(r.get("fio") or "").lower())
+    if not include_revoked:
+        rows = [r for r in rows if instructor_is_active(book, r, on=on)]
+    return sorted(rows, key=lambda r: (str(r.get("fio") or "").lower(),
+                                       str(r.get("program") or "").lower()))
+
+
+def instructor_is_active(book: Book, row: dict[str, Any],
+                         *, on: date | None = None) -> bool:
+    """Действует ли допуск: не аннулирован, срок не истёк, человек не уволен."""
+    if str(row.get("status") or "Действует") != "Действует":
+        return False
+    check_date = on or config.today()
+    if not deadlines.instructor_valid(row.get("valid_to"), check_date):
+        return False
+    # Допуск уволенного работника не действует: он не может проводить инструктаж.
+    person_id = str(row.get("person_id") or "")
+    if person_id:
+        for worker in book.table("Работники").rows:
+            if str(worker.get("id") or "") == person_id:
+                return worker_is_active(worker)
+    return True
+
+
+def instructor_revoke_reasons(book: Book) -> list[str]:
+    values = [
+        str(r.get("value") or "")
+        for r in book.table("Справочники").rows
+        if str(r.get("kind") or "") == "revoke" and str(r.get("value") or "").strip()
+    ]
+    return values or ["Увольнение", "Истёк срок обучения", "Перевод на другую должность",
+                      "Ошибка при вводе"]
 
 
 def instructor_by_id(book: Book, instructor_id: str) -> dict[str, Any] | None:
@@ -280,8 +342,19 @@ def plan_training(book: Book, data: dict[str, Any], *, repeat_from: dict[str, An
     worker = worker_by_id(book, clean["worker_id"])
     if worker is None:
         raise NotFoundError("Работник не найден.", details=["Обновите страницу и выберите работника заново."])
-    if (worker.get("status") or "Работает") != "Работает":
-        raise ValidationError("Нельзя планировать инструктаж уволенному работнику.")
+    if not worker_is_active(worker):
+        raise ValidationError(
+            "Нельзя планировать инструктаж: работник в статусе "
+            f"«{worker.get('status') or 'Уволен'}»."
+        )
+    allowed = allowed_types_for_worker(worker)
+    if clean["type"] not in allowed:
+        raise ValidationError(
+            f"Для статуса «{worker.get('status')}» допустим только "
+            f"{', '.join(t.lower() for t in allowed)} инструктаж. "
+            "Внешним работникам планируется только вводный инструктаж.",
+            fields={"type": "Выберите вводный инструктаж."},
+        )
     if not worker.get("birth_date"):
         raise ValidationError(
             "В карточке работника не указана дата рождения. Это обязательный реквизит "
@@ -296,6 +369,11 @@ def plan_training(book: Book, data: dict[str, Any], *, repeat_from: dict[str, An
         raise ValidationError(
             f"У инструктирующего не указан допуск по виду «{clean['type']}».",
             fields={"instructor_id": "Выберите инструктирующего с нужным допуском."},
+        )
+    if str(trainer.get("status") or "Действует") != "Действует":
+        raise ValidationError(
+            "Допуск инструктирующего аннулирован.",
+            fields={"instructor_id": "Выберите инструктирующего с действующим допуском."},
         )
     if not deadlines.instructor_valid(trainer.get("valid_to"), clean["plan_date"]):
         raise ValidationError(
@@ -558,3 +636,352 @@ def close_case(book: Book, case_id: str, *, close_date: date, reason: str = "") 
             row["closed_at"] = close_date
     save_book(book, action="case_close", entity="Архив", entity_id=case_id,
               reason=reason or "Закрытие дела")
+
+
+# --------------------------------------------------------------------------- #
+# Инструкции и программы по охране труда
+# --------------------------------------------------------------------------- #
+
+def programs(book: Book, *, only_active: bool = True) -> list[dict[str, Any]]:
+    """Список инструкций и программ.
+
+    По умолчанию — только действующие: недействующие скрыты из подсказок,
+    но остаются в книге для истории (проведённые инструктажи на них ссылаются).
+    """
+    rows = list(book.table("Инструкции").rows)
+    if only_active:
+        rows = [r for r in rows if str(r.get("status") or "Действует") == "Действует"]
+    return sorted(rows, key=lambda r: (str(r.get("number") or ""), str(r.get("title") or "").lower()))
+
+
+def program_title(row: dict[str, Any]) -> str:
+    """Название для подсказки и печати: «ИОТ-001 — Инструкция по охране труда»."""
+    number = str(row.get("number") or "").strip()
+    title = str(row.get("title") or "").strip()
+    if number and title:
+        return f"{number} — {title}"
+    return title or number
+
+
+def add_program(book: Book, data: dict[str, Any], *, reason: str = "") -> dict[str, Any]:
+    """Добавить инструкцию или программу."""
+    title = str(data.get("title") or "").strip()
+    if not title:
+        raise ValidationError("Укажите название инструкции или программы.",
+                              fields={"title": "Укажите название."})
+    number = str(data.get("number") or "").strip()
+    status = str(data.get("status") or "Действует").strip()
+    if status not in config.INSTRUCTOR_STATUSES and status not in ("Действует", "Не действует"):
+        status = "Действует"
+    row = book.table("Инструкции").add(
+        {
+            "id": new_id(),
+            "number": number,
+            "title": title,
+            "description": str(data.get("description") or "").strip(),
+            "approved_by": str(data.get("approved_by") or "").strip(),
+            "approved_at": data.get("approved_at") or None,
+            "status": status,
+            "replaced_by": str(data.get("replaced_by") or "").strip(),
+            "note": str(data.get("note") or "").strip(),
+        }
+    )
+    save_book(book, action="program_add", entity="Инструкции", entity_id=row["id"],
+              reason=reason or "Добавлена инструкция/программа",
+              details={"number": number, "title": title})
+    return row
+
+
+def update_program(book: Book, program_id: str, data: dict[str, Any], *,
+                   reason: str = "") -> dict[str, Any]:
+    row = book.table("Инструкции").by_key("id", program_id)
+    if row is None:
+        raise NotFoundError("Инструкция не найдена.")
+    title = str(data.get("title") or "").strip()
+    if not title:
+        raise ValidationError("Укажите название инструкции или программы.",
+                              fields={"title": "Укажите название."})
+    before = {k: str(row.get(k) or "") for k in ("number", "title", "status", "approved_by")}
+    row["number"] = str(data.get("number") or "").strip()
+    row["title"] = title
+    row["description"] = str(data.get("description") or "").strip()
+    row["approved_by"] = str(data.get("approved_by") or "").strip()
+    row["approved_at"] = data.get("approved_at") or None
+    row["status"] = str(data.get("status") or "Действует").strip()
+    row["replaced_by"] = str(data.get("replaced_by") or "").strip()
+    row["note"] = str(data.get("note") or "").strip()
+    after = {k: str(row.get(k) or "") for k in before}
+    changed = {k: {"before": before[k], "after": after[k]} for k in before if before[k] != after[k]}
+    save_book(book, action="program_update", entity="Инструкции", entity_id=program_id,
+              reason=reason or "Изменена инструкция/программа", details={"changed": changed})
+    return row
+
+
+def deactivate_program(book: Book, program_id: str, *, reason: str) -> dict[str, Any]:
+    """Перевести инструкцию в состояние «Не действует»."""
+    row = book.table("Инструкции").by_key("id", program_id)
+    if row is None:
+        raise NotFoundError("Инструкция не найдена.")
+    if not str(reason or "").strip():
+        raise ValidationError("Укажите причину: почему инструкция больше не действует.",
+                              fields={"reason": "Укажите причину."})
+    row["status"] = "Не действует"
+    row["note"] = (str(row.get("note") or "") + f" | Не действует: {reason}").strip(" |")
+    save_book(book, action="program_deactivate", entity="Инструкции",
+              entity_id=program_id, reason=reason)
+    return row
+
+
+# --------------------------------------------------------------------------- #
+# Аннулирование допуска инструктирующего
+# --------------------------------------------------------------------------- #
+
+def revoke_instructor(book: Book, row_id: str, *, reason: str,
+                      revoke_date: date | None = None) -> dict[str, Any]:
+    """Аннулировать выданный допуск.
+
+    Запись не удаляется: проведённые инструктажи ссылаются на неё. После
+    аннулирования допуск не предлагается при планировании, но остаётся
+    в истории и виден при включённом фильтре.
+    """
+    row = book.table("Инструктирующие").by_key("id", row_id)
+    if row is None:
+        raise NotFoundError("Допуск не найден.")
+    if str(row.get("status") or "Действует") == "Аннулирован":
+        raise ConflictError("Этот допуск уже аннулирован.")
+    if not str(reason or "").strip():
+        raise ValidationError("Укажите причину аннулирования допуска.",
+                              fields={"reason": "Укажите причину."})
+    row["status"] = "Аннулирован"
+    row["revoked_at"] = revoke_date or config.today()
+    row["revoke_reason"] = str(reason).strip()
+    save_book(book, action="instructor_revoke", entity="Инструктирующие",
+              entity_id=row_id, reason=reason,
+              details={"fio": row.get("fio"), "program": row.get("program")})
+    return row
+
+
+def restore_instructor(book: Book, row_id: str, *, reason: str = "") -> dict[str, Any]:
+    """Вернуть аннулированный допуск в действие (если срок не истёк)."""
+    row = book.table("Инструктирующие").by_key("id", row_id)
+    if row is None:
+        raise NotFoundError("Допуск не найден.")
+    if str(row.get("status") or "Действует") == "Действует":
+        raise ConflictError("Этот допуск уже действует.")
+    valid_to = row.get("valid_to")
+    if valid_to and valid_to < config.today():
+        raise ValidationError(
+            "Срок действия допуска уже истёк — восстановить нельзя. "
+            "Добавьте новый допуск с актуальной датой обучения.",
+            fields={"valid_to": "Срок истёк, требуется новый допуск."},
+        )
+    row["status"] = "Действует"
+    row["revoked_at"] = None
+    row["revoke_reason"] = ""
+    save_book(book, action="instructor_restore", entity="Инструктирующие",
+              entity_id=row_id, reason=reason or "Восстановление допуска")
+    return row
+
+
+def set_deputy(book: Book, row_id: str, deputy_id: str, *, reason: str = "") -> dict[str, Any]:
+    """Назначить заместителя для допуска.
+
+    Заместитель — другая строка допуска с тем же набором видов и программой.
+    Нужен, чтобы при увольнении или аннулировании основного допуска
+    было видно, кто проводит инструктаж вместо него.
+    """
+    row = book.table("Инструктирующие").by_key("id", row_id)
+    if row is None:
+        raise NotFoundError("Допуск не найден.")
+    if deputy_id and deputy_id == row_id:
+        raise ValidationError("Допуск не может быть заместителем сам себе.",
+                              fields={"deputy_id": "Выберите другого инструктирующего."})
+    if deputy_id:
+        deputy = book.table("Инструктирующие").by_key("id", deputy_id)
+        if deputy is None:
+            raise NotFoundError("Заместитель не найден.")
+        if str(deputy.get("status") or "Действует") != "Действует":
+            raise ValidationError(
+                "Нельзя назначить заместителем аннулированный допуск.",
+                fields={"deputy_id": "Выберите действующий допуск."},
+            )
+    row["deputy_id"] = deputy_id
+    save_book(book, action="instructor_deputy", entity="Инструктирующие",
+              entity_id=row_id, reason=reason or "Назначен заместитель",
+              details={"deputy_id": deputy_id})
+    return row
+
+
+def instructors_without_deputy(book: Book) -> list[dict[str, Any]]:
+    """Действующие допуски без заместителя: предупреждение о риске."""
+    result = []
+    for row in instructors(book):
+        deputy_id = str(row.get("deputy_id") or "")
+        if deputy_id:
+            deputy = book.table("Инструктирующие").by_key("id", deputy_id)
+            if deputy and instructor_is_active(book, deputy):
+                continue
+        result.append(row)
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# Карточка инструктажа и действия оператора
+# --------------------------------------------------------------------------- #
+
+def training_card_data(book: Book, training_id: str) -> dict[str, Any]:
+    """Данные для карточки инструктажа: запись, работник, инструктирующий, риски."""
+    row = book.table("Инструктажи").by_key("id", training_id)
+    if row is None:
+        raise NotFoundError("Запись инструктажа не найдена.")
+
+    worker = worker_by_id(book, str(row.get("worker_id") or ""))
+    trainer = instructor_by_id(book, str(row.get("instructor_id") or ""))
+
+    warnings: list[str] = []
+    if trainer is None:
+        warnings.append(
+            "Инструктирующий не найден в списке допусков. Проверьте запись: "
+            "возможно, допуск был удалён из книги вручную."
+        )
+    else:
+        if str(trainer.get("status") or "Действует") == "Аннулирован":
+            warnings.append(
+                f"Допуск инструктирующего аннулирован"
+                f"{(': ' + str(trainer.get('revoke_reason'))) if trainer.get('revoke_reason') else ''}. "
+                "Проведите инструктаж с другим допуском или восстановите допуск."
+            )
+        if trainer.get("valid_to") and not deadlines.instructor_valid(
+            trainer.get("valid_to"), config.today()
+        ):
+            warnings.append("Срок действия допуска инструктирующего истёк.")
+
+    if worker is None:
+        warnings.append("Работник не найден в книге — возможно, запись была удалена.")
+    elif not worker_is_active(worker):
+        warnings.append(
+            f"Работник в статусе «{worker.get('status')}». Планировать новые "
+            "инструктажи ему нельзя."
+        )
+
+    # Дубли ФИО инструктирующего по нескольким допускам: подсказка, почему
+    # одно и то же имя встречается в списке несколько раз.
+    same_name = [
+        r for r in book.table("Инструктирующие").rows
+        if str(r.get("fio") or "") == str(row.get("instructor_fio") or "")
+        and str(r.get("status") or "Действует") == "Действует"
+    ]
+
+    return {
+        "training": row,
+        "worker": worker,
+        "instructor": trainer,
+        "instructor_program": str((trainer or {}).get("program") or ""),
+        "instructor_permits": same_name,
+        "warnings": warnings,
+        "is_manual": str(row.get("source") or "") == "Ручной бланк",
+        "is_auto_planned": bool(row.get("note") and "автоматически" in str(row.get("note")).lower())
+        or str(row.get("source") or "") == "Автоплан",
+    }
+
+
+def update_plan(book: Book, training_id: str, data: dict[str, Any], *,
+                reason: str = "") -> dict[str, Any]:
+    """Изменить запланированный инструктаж: дату, инструктирующего, программу.
+
+    Для проведённых записей недоступно: бланк уже напечатан и подписан,
+    номера внесены в оригинал.
+    """
+    row = book.table("Инструктажи").by_key("id", training_id)
+    if row is None:
+        raise NotFoundError("Запись инструктажа не найдена.")
+    if str(row.get("status") or "") != "Запланирован":
+        raise ConflictError(
+            "Изменить можно только запланированный инструктаж. "
+            "Проведённый инструктаж уже зарегистрирован: бланк подписан, "
+            "номера внесены в оригинал."
+        )
+    if not str(reason or "").strip():
+        raise ValidationError("Укажите основание изменения.",
+                              fields={"reason": "Укажите основание."})
+
+    before = {k: row.get(k) for k in ("plan_date", "instructor_id", "instructor_fio",
+                                       "program", "reason", "type", "note")}
+
+    if "plan_date" in data and data["plan_date"] is not None:
+        new_date = data["plan_date"]
+        if new_date < config.today():
+            raise ValidationError(
+                "Плановая дата уже прошла. Если инструктаж проведён задним числом, "
+                "используйте раздел «Внести бумажный бланк».",
+                fields={"plan_date": "Дата в прошлом."},
+            )
+        row["plan_date"] = new_date
+
+    if data.get("instructor_id"):
+        trainer = instructor_by_id(book, str(data["instructor_id"]))
+        if trainer is None:
+            raise NotFoundError("Инструктирующий не найден.")
+        if not instructor_is_active(book, trainer):
+            raise ValidationError(
+                "Допуск инструктирующего не действует.",
+                fields={"instructor_id": "Выберите другого инструктирующего."},
+            )
+        training_type = str(data.get("type") or row.get("type") or "")
+        if training_type not in instructor_types(trainer):
+            raise ValidationError(
+                f"У инструктирующего нет допуска по виду «{training_type}».",
+                fields={"instructor_id": "Выберите другого инструктирующего."},
+            )
+        row["instructor_id"] = trainer["id"]
+        row["instructor_fio"] = str(trainer.get("fio") or "")
+
+    for field in ("program", "reason", "note"):
+        if field in data:
+            row[field] = str(data.get(field) or "").strip()
+    if data.get("type"):
+        training_type = str(data["type"])
+        if training_type not in config.TRAINING_TYPES:
+            raise ValidationError("Неизвестный вид инструктажа.",
+                                  fields={"type": "Выберите вид из списка."})
+        row["type"] = training_type
+
+    row["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+    after = {k: row.get(k) for k in before}
+    changed = {
+        k: {"before": str(before[k] or ""), "after": str(after[k] or "")}
+        for k in before if str(before[k] or "") != str(after[k] or "")
+    }
+    save_book(book, action="plan_update", entity="Инструктажи", entity_id=training_id,
+              reason=reason, details={"changed": changed})
+    return row
+
+
+def cancel_training(book: Book, training_id: str, *, reason: str,
+                    cancel_date: date | None = None) -> dict[str, Any]:
+    """Отменить инструктаж — с обязательной причиной и датой.
+
+    Работает и для запланированных, и для проведённых: проведённый документ
+    аннулируется, но номер остаётся занятым и запись не удаляется.
+    """
+    row = book.table("Инструктажи").by_key("id", training_id)
+    if row is None:
+        raise NotFoundError("Запись инструктажа не найдена.")
+    if str(row.get("status") or "") == "Отменён":
+        raise ConflictError("Запись уже отменена.")
+    if not str(reason or "").strip():
+        raise ValidationError("Отмена возможна только с указанием причины.",
+                              fields={"reason": "Укажите причину отмены."})
+
+    was_completed = str(row.get("status") or "") == "Проведён"
+    row["status"] = "Отменён"
+    stamp = (cancel_date or config.today()).strftime("%d.%m.%Y")
+    row["note"] = (str(row.get("note") or "") + f" | Отменён {stamp}: {reason}").strip(" |")
+    row["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    save_book(book, action="training_cancel", entity="Инструктажи",
+              entity_id=training_id, reason=reason,
+              details={"was_completed": was_completed,
+                       "number_ot": row.get("number_ot") or "",
+                       "code": row.get("code") or ""})
+    return row

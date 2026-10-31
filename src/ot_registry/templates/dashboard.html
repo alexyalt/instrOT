@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Сроки — {{ entry.name }}{% endblock %}
 {% block content %}
+{% if email_note %}<div class="flash flash-info">{{ email_note }}</div>{% endif %}
 <h1>{{ book.org_value('full_name') or entry.name }}</h1>
 
 <div class="grid grid-3">
