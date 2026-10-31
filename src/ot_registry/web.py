@@ -665,29 +665,32 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         instructor_rows = services.instructors(book, on=config.today())
         dicts = services.dictionaries(book)
 
-        if request.method == "GET":
+        def render_manual(form, errors=None, message="", details=None, plans_list=None):
+            selected_worker_label = ""
+            chosen_worker = services.worker_by_id(book, form.get("worker_id", "") or "")
+            if chosen_worker:
+                selected_worker_label = str(chosen_worker.get("fio") or "")
+                if chosen_worker.get("position"):
+                    selected_worker_label += f" — {chosen_worker['position']}"
             return render_template(
                 "manual.html", entry=entry, book=book, workers=workers,
                 instructors=instructor_rows, dicts=dicts,
-                form={"fact_date": config.today().isoformat()}, errors={}, message="",
-                plans=[],
+                form=form, errors=errors or {}, message=message, details=details,
+                plans=plans_list or [],
+                selected_worker_label=selected_worker_label,
             )
+
+        if request.method == "GET":
+            return render_manual({"fact_date": config.today().isoformat()})
 
         form = request.form.to_dict()
         try:
             fact = _parse_date(form.get("fact_date"))
         except ValidationError as exc:
             form["fact_date"] = ""
-            return render_template(
-                "manual.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form=form,
-                errors={"fact_date": exc.message}, message="", plans=[],
-            )
+            return render_manual(form, {"fact_date": exc.message})
         payload = {
             "worker_id": form.get("worker_id", ""),
-            "new_worker_fio": form.get("new_worker_fio", ""),
-            "new_worker_position": form.get("new_worker_position", ""),
-            "new_worker_department": form.get("new_worker_department", ""),
             "type": form.get("type", ""),
             "program": form.get("program", ""),
             "reason": form.get("reason", ""),
@@ -709,12 +712,8 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
             allow_similar=bool(form.get("allow_similar")),
         )
         if error:
-            return render_template(
-                "manual.html", entry=entry, book=book, workers=workers,
-                instructors=instructor_rows, dicts=dicts, form=form,
-                errors=error["fields"], message=error["message"],
-                details=error.get("details") or [], plans=plans,
-            )
+            return render_manual(form, error["fields"], error["message"],
+                                 error.get("details") or [], plans)
         return render_template(
             "manual_done.html", entry=entry, book=book,
             training=result["training"], next_plan=result.get("next_plan"),

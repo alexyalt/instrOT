@@ -243,8 +243,11 @@ def validate_manual_entry(data: dict[str, Any], *, today: date | None = None) ->
     errors: dict[str, str] = {}
 
     worker_id = str(data.get("worker_id") or "").strip()
-    if not worker_id and not str(data.get("new_worker_fio") or "").strip():
-        errors["worker_id"] = "Выберите работника или укажите ФИО для новой записи."
+    if not worker_id:
+        errors["worker_id"] = (
+            "Выберите работника из списка. Если его нет — добавьте через раздел "
+            "«Работники»: там сохраняются дата рождения и кадровые данные."
+        )
 
     training_type = str(data.get("type") or "").strip()
     if training_type not in config.TRAINING_TYPES:
@@ -261,9 +264,6 @@ def validate_manual_entry(data: dict[str, Any], *, today: date | None = None) ->
     base.update(
         {
             "worker_id": worker_id,
-            "new_worker_fio": str(data.get("new_worker_fio") or "").strip(),
-            "new_worker_position": str(data.get("new_worker_position") or "").strip(),
-            "new_worker_department": str(data.get("new_worker_department") or "").strip(),
             "type": training_type,
             "program": str(data.get("program") or "").strip(),
             "reason": str(data.get("reason") or "").strip(),

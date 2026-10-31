@@ -218,20 +218,9 @@ def register_manual(book: Book, data: dict[str, Any], *,
         book, clean["instructor_id"], on=fact_date, training_type=training_type
     )
 
-    worker_id = clean["worker_id"]
-    if not worker_id:
-        created = add_worker(
-            book,
-            {
-                "fio": clean["new_worker_fio"],
-                "position": clean["new_worker_position"] or "Не указана",
-                "department": clean["new_worker_department"],
-                "status": "Работает",
-            },
-            allow_duplicate=True,
-            reason="Создан при внесении бумажного бланка",
-        )
-        worker_id = str(created["id"])
+    # Работник должен существовать в книге: создание людей из формы
+    # бумажного ввода порождало случайные должности и подразделения.
+    worker_id = str(clean["worker_id"] or "")
 
     snapshot = _worker_snapshot(book, worker_id)
     validation.require_birth_date(worker_by_id(book, worker_id))
@@ -304,8 +293,7 @@ def register_manual(book: Book, data: dict[str, Any], *,
             "next_plan_id": (next_plan or {}).get("id", ""),
         },
     )
-    return {"training": row, "created_worker": bool(not clean["worker_id"]),
-            "next_plan": next_plan}
+    return {"training": row, "next_plan": next_plan}
 
 
 def adjust_repeat_plans(book: Book, *, dry_run: bool = True) -> dict[str, Any]:
@@ -366,4 +354,5 @@ def suggest_link_candidates(book: Book, *, worker_id: str, training_type: str) -
 
 
 def suggest_new_worker_data(book: Book) -> dict[str, list[str]]:
+    """Подсказки для формы добавления работника (должности, подразделения)."""
     return dictionaries(book)
