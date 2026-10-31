@@ -47,6 +47,36 @@ def is_manual_code(code: str) -> bool:
     return str(code).strip() == config.MANUAL_CODE
 
 
+def display_number(value: str) -> str:
+    """Номер для человека: без ведущих нулей.
+
+    В книге номер хранится с ведущими нулями (ОТ000030) — так удобно
+    сортировать и видеть разрядность. На бланке и на экране оператору
+    удобнее короткий вид: ОТ30, 30, Д1, П1.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # Отделяем буквенный префикс: ОТ, ВВ, Д, П и т. п.
+    index = 0
+    while index < len(text) and not text[index].isdigit():
+        index += 1
+    prefix, digits = text[:index], text[index:]
+    if not digits.isdigit():
+        return text
+    stripped = digits.lstrip("0") or "0"
+    return f"{prefix}{stripped}" if prefix else stripped
+
+
+def display_number_short(value: str) -> str:
+    """Только цифры номера, без префикса: ОТ000030 → 30."""
+    text = str(value or "").strip()
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return ""
+    return digits.lstrip("0") or "0"
+
+
 def _required_text(value: Any, field: str, label: str, errors: dict[str, str]) -> str:
     text = ("" if value is None else str(value)).strip()
     if not text:
@@ -135,7 +165,17 @@ def validate_plan(data: dict[str, Any]) -> dict[str, Any]:
     """Проверить данные планирования инструктажа."""
     errors: dict[str, str] = {}
     worker_id = _required_text(data.get("worker_id"), "worker_id", "Работник", errors)
+    if errors.get("worker_id"):
+        errors["worker_id"] = (
+            "Выберите работника из появившегося списка. Если его нет — добавьте "
+            "через раздел «Работники»."
+        )
     trainer = _required_text(data.get("instructor_id"), "instructor_id", "Инструктирующий", errors)
+    if errors.get("instructor_id"):
+        errors["instructor_id"] = (
+            "Выберите инструктирующего из списка. Если нужного нет — добавьте допуск "
+            "в разделе «Инструктирующие»."
+        )
 
     plan_date = data.get("plan_date")
     if plan_date is None:

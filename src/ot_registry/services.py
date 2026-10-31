@@ -823,3 +823,165 @@ def instructors_without_deputy(book: Book) -> list[dict[str, Any]]:
                 continue
         result.append(row)
     return result
+
+
+# --------------------------------------------------------------------------- #
+# Карточка инструктажа и действия оператора
+# --------------------------------------------------------------------------- #
+
+def training_card_data(book: Book, training_id: str) -> dict[str, Any]:
+    """Данные для карточки инструктажа: запись, работник, инструктирующий, риски."""
+    row = book.table("Инструктажи").by_key("id", training_id)
+    if row is None:
+        raise NotFoundError("Запись инструктажа не найдена.")
+
+    worker = worker_by_id(book, str(row.get("worker_id") or ""))
+    trainer = instructor_by_id(book, str(row.get("instructor_id") or ""))
+
+    warnings: list[str] = []
+    if trainer is None:
+        warnings.append(
+            "Инструктирующий не найден в списке допусков. Проверьте запись: "
+            "возможно, допуск был удалён из книги вручную."
+        )
+    else:
+        if str(trainer.get("status") or "Действует") == "Аннулирован":
+            warnings.append(
+                f"Допуск инструктирующего аннулирован"
+                f"{(': ' + str(trainer.get('revoke_reason'))) if trainer.get('revoke_reason') else ''}. "
+                "Проведите инструктаж с другим допуском или восстановите допуск."
+            )
+        if trainer.get("valid_to") and not deadlines.instructor_valid(
+            trainer.get("valid_to"), config.today()
+        ):
+            warnings.append("Срок действия допуска инструктирующего истёк.")
+
+    if worker is None:
+        warnings.append("Работник не найден в книге — возможно, запись была удалена.")
+    elif not worker_is_active(worker):
+        warnings.append(
+            f"Работник в статусе «{worker.get('status')}». Планировать новые "
+            "инструктажи ему нельзя."
+        )
+
+    # Дубли ФИО инструктирующего по нескольким допускам: подсказка, почему
+    # одно и то же имя встречается в списке несколько раз.
+    same_name = [
+        r for r in book.table("Инструктирующие").rows
+        if str(r.get("fio") or "") == str(row.get("instructor_fio") or "")
+        and str(r.get("status") or "Действует") == "Действует"
+    ]
+
+    return {
+        "training": row,
+        "worker": worker,
+        "instructor": trainer,
+        "instructor_program": str((trainer or {}).get("program") or ""),
+        "instructor_permits": same_name,
+        "warnings": warnings,
+        "is_manual": str(row.get("source") or "") == "Ручной бланк",
+        "is_auto_planned": bool(row.get("note") and "автоматически" in str(row.get("note")).lower())
+        or str(row.get("source") or "") == "Автоплан",
+    }
+
+
+def update_plan(book: Book, training_id: str, data: dict[str, Any], *,
+                reason: str = "") -> dict[str, Any]:
+    """Изменить запланированный инструктаж: дату, инструктирующего, программу.
+
+    Для проведённых записей недоступно: бланк уже напечатан и подписан,
+    номера внесены в оригинал.
+    """
+    row = book.table("Инструктажи").by_key("id", training_id)
+    if row is None:
+        raise NotFoundError("Запись инструктажа не найдена.")
+    if str(row.get("status") or "") != "Запланирован":
+        raise ConflictError(
+            "Изменить можно только запланированный инструктаж. "
+            "Проведённый инструктаж уже зарегистрирован: бланк подписан, "
+            "номера внесены в оригинал."
+        )
+    if not str(reason or "").strip():
+        raise ValidationError("Укажите основание изменения.",
+                              fields={"reason": "Укажите основание."})
+
+    before = {k: row.get(k) for k in ("plan_date", "instructor_id", "instructor_fio",
+                                       "program", "reason", "type", "note")}
+
+    if "plan_date" in data and data["plan_date"] is not None:
+        new_date = data["plan_date"]
+        if new_date < config.today():
+            raise ValidationError(
+                "Плановая дата уже прошла. Если инструктаж проведён задним числом, "
+                "используйте раздел «Внести бумажный бланк».",
+                fields={"plan_date": "Дата в прошлом."},
+            )
+        row["plan_date"] = new_date
+
+    if data.get("instructor_id"):
+        trainer = instructor_by_id(book, str(data["instructor_id"]))
+        if trainer is None:
+            raise NotFoundError("Инструктирующий не найден.")
+        if not instructor_is_active(book, trainer):
+            raise ValidationError(
+                "Допуск инструктирующего не действует.",
+                fields={"instructor_id": "Выберите другого инструктирующего."},
+            )
+        training_type = str(data.get("type") or row.get("type") or "")
+        if training_type not in instructor_types(trainer):
+            raise ValidationError(
+                f"У инструктирующего нет допуска по виду «{training_type}».",
+                fields={"instructor_id": "Выберите другого инструктирующего."},
+            )
+        row["instructor_id"] = trainer["id"]
+        row["instructor_fio"] = str(trainer.get("fio") or "")
+
+    for field in ("program", "reason", "note"):
+        if field in data:
+            row[field] = str(data.get(field) or "").strip()
+    if data.get("type"):
+        training_type = str(data["type"])
+        if training_type not in config.TRAINING_TYPES:
+            raise ValidationError("Неизвестный вид инструктажа.",
+                                  fields={"type": "Выберите вид из списка."})
+        row["type"] = training_type
+
+    row["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+    after = {k: row.get(k) for k in before}
+    changed = {
+        k: {"before": str(before[k] or ""), "after": str(after[k] or "")}
+        for k in before if str(before[k] or "") != str(after[k] or "")
+    }
+    save_book(book, action="plan_update", entity="Инструктажи", entity_id=training_id,
+              reason=reason, details={"changed": changed})
+    return row
+
+
+def cancel_training(book: Book, training_id: str, *, reason: str,
+                    cancel_date: date | None = None) -> dict[str, Any]:
+    """Отменить инструктаж — с обязательной причиной и датой.
+
+    Работает и для запланированных, и для проведённых: проведённый документ
+    аннулируется, но номер остаётся занятым и запись не удаляется.
+    """
+    row = book.table("Инструктажи").by_key("id", training_id)
+    if row is None:
+        raise NotFoundError("Запись инструктажа не найдена.")
+    if str(row.get("status") or "") == "Отменён":
+        raise ConflictError("Запись уже отменена.")
+    if not str(reason or "").strip():
+        raise ValidationError("Отмена возможна только с указанием причины.",
+                              fields={"reason": "Укажите причину отмены."})
+
+    was_completed = str(row.get("status") or "") == "Проведён"
+    row["status"] = "Отменён"
+    stamp = (cancel_date or config.today()).strftime("%d.%m.%Y")
+    row["note"] = (str(row.get("note") or "") + f" | Отменён {stamp}: {reason}").strip(" |")
+    row["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    save_book(book, action="training_cancel", entity="Инструктажи",
+              entity_id=training_id, reason=reason,
+              details={"was_completed": was_completed,
+                       "number_ot": row.get("number_ot") or "",
+                       "code": row.get("code") or ""})
+    return row

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Инструктаж — {{ training.fio }}{% endblock %}
+{% block content %}
+<div class="page-head row" style="justify-content:space-between;align-items:flex-start">
+  <div>
+    <h1 style="margin:0">{{ training.type }} инструктаж</h1>
+    <p class="muted small" style="margin:4px 0 0">
+      {{ training.fio }}{% if training.position %} · {{ training.position }}{% endif %}
+    </p>
+  </div>
+  <div class="actions" style="margin:0">
+    {% if training.status == 'Запланирован' %}
+      <a class="button" href="{{ url_for('register') }}?code={{ training.code }}">Провести</a>
+    {% endif %}
+    <a class="button secondary" href="{{ url_for('trainings_list') }}">К списку</a>
+  </div>
+</div>
+
+{% for text in warnings %}
+  <div class="flash flash-error">{{ text }}</div>
+{% endfor %}
+
+<div class="panel">
+  <h2 style="margin-top:0">Инструктирующий</h2>
+  <div class="instructor-block">
+    <div class="instructor-name">{{ training.instructor_fio or 'не указан' }}</div>
+    {% if instructor_program %}
+      <div class="instructor-program">Допуск: {{ instructor_program }}</div>
+    {% endif %}
+    {% if instructor and instructor.valid_to %}
+      <div class="small">Действует до {{ instructor.valid_to | ru_date }}</div>
+    {% endif %}
+    {% if instructor and instructor.status == 'Аннулирован' %}
+      <div class="small" style="color:var(--danger)">Допуск аннулирован</div>
+    {% endif %}
+  </div>
+  {% if instructor_permits | length > 1 %}
+    <div class="help" style="margin-top:10px">
+      У этого инструктирующего {{ instructor_permits | length }} допуска (по разным программам),
+      поэтому его имя встречается в списке несколько раз. Это нормально:
+      различие — в программе.
+    </div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Данные инструктажа</h2>
+  <table class="data">
+    <tbody>
+      <tr><th style="width:34%">Статус</th>
+        <td>
+          {% if training.status == 'Проведён' %}<span class="badge badge-ok">Проведён</span>
+          {% elif training.status == 'Отменён' %}<span class="badge">Отменён</span>
+          {% else %}<span class="badge badge-warn">Запланирован</span>{% endif %}
+        </td></tr>
+      <tr><th>Работник</th><td>
+        {% if worker_id %}<a href="{{ url_for('worker_card', worker_id=training.worker_id) }}">{{ training.fio }}</a>
+        {% else %}{{ training.fio }}{% endif %}
+      </td></tr>
+      <tr><th>Должность / подразделение</th>
+        <td>{{ training.position or '—' }}{% if training.department %} · {{ training.department }}{% endif %}</td></tr>
+      <tr><th>ЛНА / программа</th><td>{{ training.program or '—' }}</td></tr>
+      {% if training.reason %}<tr><th>Причина</th><td>{{ training.reason }}</td></tr>{% endif %}
+      <tr><th>Плановая дата</th><td>{{ training.plan_date | ru_date or '—' }}</td></tr>
+      <tr><th>Фактическая дата</th><td>{{ training.fact_date | ru_date or '—' }}</td></tr>
+      <tr><th>Дата внесения</th><td>{{ training.reg_date | ru_date or '—' }}</td></tr>
+      <tr><th>Код бланка</th><td class="mono">{{ training.code | format_code }}</td></tr>
+      {% if training.number_ot %}
+      <tr><th>Номера</th>
+        <td>
+          <strong class="number-print">{{ training.number_ot | num }}</strong> ·
+          {{ training.number_type | num }} ·
+          дело {{ training.case_id | num }} / пакет {{ training.pack_id | num }}
+          <div class="small muted">
+            в книге хранится как {{ training.number_ot }}
+          </div>
+        </td></tr>
+      {% endif %}
+      <tr><th>Источник</th><td>{{ training.source or 'Система' }}</td></tr>
+      {% if training.note %}<tr><th>Примечание</th><td class="small">{{ training.note }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if training.status == 'Запланирован' %}
+<div class="panel">
+  <h2 style="margin-top:0">Изменить план</h2>
+  <p class="small muted">
+    Можно перенести дату, сменить инструктирующего, программу или вид.
+    Изменение возможно только до проведения: после регистрации бланк уже
+    подписан, а номера внесены в оригинал.
+  </p>
+  <form method="post" action="{{ url_for('training_update', training_id=training.id) }}" data-once>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="grid grid-2">
+      <div class="field">
+        <label for="plan_date">Плановая дата</label>
+        <input type="date" id="plan_date" name="plan_date"
+               value="{% if training.plan_date %}{{ training.plan_date.isoformat() }}{% endif %}">
+      </div>
+      <div class="field">
+        <label for="type">Вид инструктажа</label>
+        <select id="type" name="type">
+          {% for t in training_types %}
+            <option value="{{ t }}" {% if training.type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="instructor_id">Инструктирующий</label>
+        <select id="instructor_id" name="instructor_id">
+          <option value="">— не менять —</option>
+          {% for i in available_instructors %}
+            <option value="{{ i.id }}" {% if training.instructor_id == i.id %}selected{% endif %}>
+              {{ i.fio }}{% if i.program %} — {{ i.program }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+        <div class="hint">В списке — только действующие допуски.</div>
+      </div>
+      <div class="field">
+        <label for="program">ЛНА / программа</label>
+        <input type="text" id="program" name="program" value="{{ training.program or '' }}"
+               data-suggestions='{{ program_titles | tojson }}'>
+      </div>
+    </div>
+    <div class="field">
+      <label for="reason">Причина</label>
+      <input type="text" id="reason" name="reason" value="{{ training.reason or '' }}">
+    </div>
+    <div class="field {% if errors.reason %}field-error{% endif %}">
+      <label for="change_reason">Основание изменения *</label>
+      <input type="text" id="change_reason" name="change_reason" required
+             placeholder="например: перенос по производственной необходимости">
+      {% if errors.reason %}<div class="error-text">{{ errors.reason }}</div>{% endif %}
+      <div class="hint">Основание и прежние значения сохраняются в журнале действий.</div>
+    </div>
+    <div class="actions">
+      <button type="submit">Сохранить изменения</button>
+      <a class="button secondary" href="{{ url_for('training_card', training_id=training.id) }}">Закрыть</a>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="panel {% if training.status != 'Отменён' %}danger-zone{% endif %}">
+  <h2 style="margin-top:0">Отмена инструктажа</h2>
+  {% if training.status == 'Отменён' %}
+    <p class="small muted">Запись уже отменена. Номер остаётся занятым и не используется повторно.</p>
+  {% else %}
+    <p class="small muted">
+      {% if training.status == 'Проведён' %}
+        Проведённый инструктаж аннулируется: запись и номер сохраняются,
+        но инструктаж больше не считается проведённым.
+      {% else %}
+        Запланированный инструктаж будет отменён и снят с контроля сроков.
+      {% endif %}
+      Причина обязательна.
+    </p>
+    <form method="post" action="{{ url_for('training_cancel', training_id=training.id) }}"
+          data-once onsubmit="return confirm('Отменить этот инструктаж?')">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="cancel_reason">Причина отмены *</label>
+          <input type="text" id="cancel_reason" name="reason" required
+                 placeholder="например: инструктаж проведён по другой программе">
+        </div>
+        <div class="field">
+          <label for="cancel_date">Дата отмены</label>
+          <input type="date" id="cancel_date" name="cancel_date" value="{{ today().isoformat() }}">
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" class="danger">Отменить инструктаж</button>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

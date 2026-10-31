@@ -185,6 +185,93 @@
   /* Инициализация                                                       */
   /* ------------------------------------------------------------------ */
 
+  /* Поле выбора из списка: скрытый input хранит ID, текст — для поиска. */
+  function attachPicker(host) {
+    var input = host.querySelector("[data-picker-input]");
+    var hidden = host.querySelector("input[type=hidden]");
+    var options;
+    try { options = JSON.parse(host.dataset.picker || "[]"); } catch (e) { options = []; }
+    if (!input || !hidden || !options.length) return;
+
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("spellcheck", "false");
+
+    var list = document.createElement("ul");
+    list.className = "autocomplete-list";
+    list.hidden = true;
+    host.appendChild(list);
+    var active = -1;
+    var shown = [];
+
+    function close() { list.hidden = true; list.innerHTML = ""; active = -1; }
+
+    function choose(option) {
+      hidden.value = option.id;
+      input.value = option.label;
+      close();
+      // Сообщаем форме, что выбор сделан: используются зависимые списки.
+      input.dispatchEvent(new Event("picker-change", { bubbles: true }));
+    }
+
+    function render(items) {
+      shown = items;
+      if (!items.length) {
+        list.innerHTML = "<li class='muted'>Ничего не найдено</li>";
+        list.hidden = false;
+        return;
+      }
+      list.innerHTML = "";
+      items.slice(0, 15).forEach(function (option, index) {
+        var li = document.createElement("li");
+        li.textContent = option.label;
+        li.addEventListener("mousedown", function (event) {
+          event.preventDefault();
+          choose(option);
+        });
+        if (index === active) li.classList.add("active");
+        list.appendChild(li);
+      });
+      list.hidden = false;
+    }
+
+    function filter() {
+      var query = input.value.trim().toLowerCase();
+      if (!query) { render(options); return; }
+      render(options.filter(function (option) {
+        return String(option.search || option.label).toLowerCase().indexOf(query) !== -1;
+      }));
+    }
+
+    input.addEventListener("focus", filter);
+    input.addEventListener("input", function () {
+      // Ручной ввод сбрасывает прошлый выбор, пока не выбран новый.
+      if (hidden.value) {
+        var match = options.filter(function (o) { return o.label === input.value; });
+        if (!match.length) hidden.value = "";
+      }
+      active = -1;
+      filter();
+    });
+    input.addEventListener("keydown", function (event) {
+      var items = list.querySelectorAll("li[data-index]");
+      if (event.key === "Escape") { close(); return; }
+      if (!shown.length) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        active += event.key === "ArrowDown" ? 1 : -1;
+        if (active < 0) active = shown.length - 1;
+        if (active >= shown.length) active = 0;
+        Array.prototype.forEach.call(list.children, function (li, i) {
+          li.classList.toggle("active", i === active);
+        });
+      } else if (event.key === "Enter" && active >= 0) {
+        event.preventDefault();
+        choose(shown[active]);
+      }
+    });
+    input.addEventListener("blur", function () { setTimeout(close, 120); });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     // Отключаем подсказки браузера во всех полях: мешают и мешают
     // собственному автодополнению.
@@ -193,6 +280,7 @@
     });
 
     document.querySelectorAll("[data-suggestions]").forEach(attachAutocomplete);
+    document.querySelectorAll("[data-picker]").forEach(attachPicker);
 
     document.querySelectorAll("table.data").forEach(makeSortable);
 

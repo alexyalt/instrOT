@@ -12,17 +12,19 @@
 
   <div class="grid grid-2">
     <div class="field {% if errors.worker_id %}field-error{% endif %}">
-      <label for="worker_id">Работник *</label>
-      <select id="worker_id" name="worker_id" required>
-        <option value="">— выберите —</option>
-        {% for w in workers %}
-        <option value="{{ w.id }}" {% if form.worker_id == w.id %}selected{% endif %}>
-          {{ w.fio }} — {{ w.position }}{% if w.department %} ({{ w.department }}){% endif %}
-        </option>
-        {% endfor %}
-      </select>
+      <label for="worker_search">Работник *</label>
+      <div data-picker='{{ worker_options(workers) | tojson }}' class="autocomplete-host">
+        <input type="text" id="worker_search" data-picker-input
+               value="{{ selected_worker_label or '' }}"
+               placeholder="начните вводить фамилию" autocomplete="off">
+        <input type="hidden" name="worker_id" value="{{ form.worker_id or '' }}">
+      </div>
       {% if errors.worker_id %}<div class="error-text">{{ errors.worker_id }}</div>{% endif %}
-      <div class="hint">Список содержит только работающих сотрудников.</div>
+      <div class="hint">
+        Поиск идёт по любому слову: по фамилии, имени, должности или табельному.
+        Показываются только действующие работники — {{ workers | length }} чел.
+        Нет нужного? <a href="{{ url_for('worker_new') }}">Добавить работника</a>.
+      </div>
     </div>
 
     <div class="field {% if errors.type %}field-error{% endif %}">
@@ -34,37 +36,53 @@
         {% endfor %}
       </select>
       {% if errors.type %}<div class="error-text">{{ errors.type }}</div>{% endif %}
+      <div class="hint">
+        Внеплановому и целевому нужна причина, остальным — наименование ЛНА.
+      </div>
     </div>
 
     <div class="field {% if errors.plan_date %}field-error{% endif %}">
       <label for="plan_date">Плановая дата *</label>
       <input type="date" id="plan_date" name="plan_date" required
-             value="{{ form.plan_date or '' }}">
+             value="{{ form.plan_date or today().isoformat() }}">
       {% if errors.plan_date %}<div class="error-text">{{ errors.plan_date }}</div>{% endif %}
+      <div class="hint">
+        Для повторного инструктажа срок — не реже одного раза в 6 месяцев
+        от фактической даты предыдущего.
+      </div>
     </div>
 
     <div class="field {% if errors.instructor_id %}field-error{% endif %}">
-      <label for="instructor_id">Инструктирующий *</label>
-      <select id="instructor_id" name="instructor_id" required>
-        <option value="">— выберите —</option>
-        {% for i in instructors %}
-        <option value="{{ i.id }}" {% if form.instructor_id == i.id %}selected{% endif %}>
-          {{ i.fio }}{% if i.program %} — {{ i.program }}{% endif %}
-        </option>
-        {% endfor %}
-      </select>
+      <label for="instructor_search">Инструктирующий *</label>
+      <div data-picker='{{ instructor_options(instructors) | tojson }}' class="autocomplete-host">
+        <input type="text" id="instructor_search" data-picker-input
+               value="{{ selected_instructor_label or '' }}"
+               placeholder="начните вводить фамилию" autocomplete="off">
+        <input type="hidden" name="instructor_id" value="{{ form.instructor_id or '' }}">
+      </div>
       {% if errors.instructor_id %}<div class="error-text">{{ errors.instructor_id }}</div>{% endif %}
       {% if not instructors %}
-        <div class="error-text">Нет действующих допусков. Добавьте инструктирующего.</div>
+        <div class="error-text">
+          Нет действующих допусков.
+          <a href="{{ url_for('instructor_new') }}">Добавьте инструктирующего</a>.
+        </div>
+      {% else %}
+        <div class="hint">
+          Показываются только допуски, действующие на сегодня: {{ instructors | length }}.
+          У одного человека может быть несколько допусков — различие в программе.
+        </div>
       {% endif %}
     </div>
 
     <div class="field {% if errors.program %}field-error{% endif %}">
-      <label for="program">Программа / инструкции</label>
+      <label for="program">ЛНА / программа *</label>
       <input type="text" id="program" name="program" value="{{ form.program or '' }}"
-             data-suggestions='{{ dicts.program | tojson }}'>
+             data-suggestions='{{ program_titles | tojson }}'>
       {% if errors.program %}<div class="error-text">{{ errors.program }}</div>{% endif %}
-      <div class="hint">Обязательно для вводного, первичного и повторного.</div>
+      <div class="hint">
+        Наименование локального акта — обязательный реквизит (пп. 86–87 Правил № 2464).
+        <a href="{{ url_for('programs_list') }}">Список инструкций</a>.
+      </div>
     </div>
 
     <div class="field {% if errors.reason %}field-error{% endif %}">
@@ -72,7 +90,7 @@
       <input type="text" id="reason" name="reason" value="{{ form.reason or '' }}"
              data-suggestions='{{ dicts.reason | tojson }}'>
       {% if errors.reason %}<div class="error-text">{{ errors.reason }}</div>{% endif %}
-      <div class="hint">Обязательна для внепланового и целевого.</div>
+      <div class="hint">Обязательна для внепланового и целевого инструктажа.</div>
     </div>
   </div>
 
@@ -82,10 +100,10 @@
   </div>
 
   <div class="help">
-    План получает уникальный шестизначный код бланка — по нему инструктаж затем находится
-    для регистрации. Этот код не является подписью и не заменяет документ.
-    Для повторного инструктажа следующий срок предложится автоматически
-    после регистрации проведения.
+    План получает шестизначный код бланка — по нему инструктаж находится
+    при регистрации. Код не является подписью и не заменяет документ.
+    После регистрации проведения система сама предложит срок следующего
+    повторного инструктажа.
   </div>
 
   <div class="actions">

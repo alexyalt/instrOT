@@ -12,8 +12,8 @@
     <div class="field" style="flex:0 0 200px">
       <label for="status">Статус</label>
       <select id="status" name="status">
-        <option value="">Все</option>
-        <option value="Запланирован" {% if status == 'Запланирован' %}selected{% endif %}>Запланирован</option>
+        <option value="Запланирован" {% if status == 'Запланирован' %}selected{% endif %}>Запланированные</option>
+        <option value="" {% if not status %}selected{% endif %}>Все</option>
         <option value="Проведён" {% if status == 'Проведён' %}selected{% endif %}>Проведён</option>
         <option value="Отменён" {% if status == 'Отменён' %}selected{% endif %}>Отменён</option>
       </select>
@@ -42,7 +42,7 @@
         {% for row, info in rows %}
         <tr class="{{ info.css }}">
           <td class="small">{{ info.text }}</td>
-          <td><a href="{{ url_for('worker_card', worker_id=row.worker_id) }}">{{ row.fio }}</a>
+          <td><a href="{{ url_for('training_card', training_id=row.id) }}">{{ row.fio }}</a>
             <div class="small muted">{{ row.position }}</div></td>
           <td>{{ row.type }}</td>
           <td>
@@ -55,22 +55,17 @@
           <td class="mono small">{{ row.code | format_code }}</td>
           <td class="small">
             {% if row.number_ot %}
-              {{ row.number_ot }}<div class="muted">{{ row.number_type }} · {{ row.case_id }}-{{ row.pack_id }}</div>
+              {{ row.number_ot | num }}<div class="muted">
+                {{ row.number_type | num }} · {{ row.case_id | num }}-{{ row.pack_id | num }}</div>
             {% else %}—{% endif %}
           </td>
-          <td class="small">{{ row.instructor_fio or '—' }}
-            <div style="margin-top:4px">
-              {% if row.status == 'Запланирован' %}
-                <a class="small" href="{{ url_for('register') }}?code={{ row.code }}">Провести</a>
-                <form method="post" action="{{ url_for('training_cancel', training_id=row.id) }}"
-                      class="inline" onsubmit="return confirm('Отменить план?')">
-                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                  <input type="hidden" name="reason" value="Отмена плана из списка">
-                  <button type="submit" class="ghost small" style="padding:0;font-size:12px">Отменить</button>
-                </form>
-              {% else %}
-                <a class="small" href="{{ url_for('training_edit', training_id=row.id) }}">Исправить</a>
-              {% endif %}
+          <td class="small">
+            <strong>{{ row.instructor_fio or '—' }}</strong>
+            {% if row.source == 'Ручной бланк' %}
+              <div class="badge" style="margin-top:4px">бумажный</div>
+            {% endif %}
+            <div style="margin-top:6px">
+              <a class="small" href="{{ url_for('training_card', training_id=row.id) }}">Открыть</a>
             </div>
           </td>
         </tr>
