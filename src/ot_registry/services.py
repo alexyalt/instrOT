@@ -261,6 +261,58 @@ def transfer_worker(book: Book, worker_id: str, *, position: str, department: st
     return row
 
 
+def dismissal_impact(book: Book, worker_id: str) -> dict[str, Any]:
+    """Что сломается при увольнении работника: допуски и планы (комментарий 30.10, п. 22).
+
+    Отдельный сценарий: работник может быть инструктирующим — тогда после увольнения
+    его допуски перестают действовать, и по программам некому проводить инструктаж.
+    Заместители на уволенного тоже не назначаются: они привязаны к действующему допуску.
+    """
+    worker = worker_by_id(book, worker_id)
+    if worker is None:
+        raise NotFoundError("Работник не найден.")
+
+    person_id = str(worker.get("id") or "")
+    permits: list[dict[str, Any]] = []
+    for row in book.table("Инструктирующие").rows:
+        if person_id and str(row.get("person_id") or "") == person_id:
+            permits.append(row)
+
+    # Программы/виды, по которым не останется ни одного действующего допуска.
+    orphans: list[str] = []
+    permit_ids = {str(p.get("id") or "") for p in permits}
+    for row in permits:
+        program = str(row.get("program") or "").strip()
+        for kind in sorted(instructor_types(row)):
+            others = [
+                r for r in book.table("Инструктирующие").rows
+                if str(r.get("id") or "") not in permit_ids
+                and kind in instructor_types(r)
+                and instructor_is_active(book, r)
+                and (not program or str(r.get("program") or "").strip() == program)
+            ]
+            label = f"{kind} ({program})" if program else kind
+            if not others and label not in orphans:
+                orphans.append(label)
+
+    planned_rows = [
+        t for t in planned(book)
+        if str(t.get("worker_id") or "") == person_id
+    ]
+    deputy_of = [
+        r for r in book.table("Инструктирующие").rows
+        if str(r.get("deputy_id") or "") in permit_ids
+    ]
+
+    return {
+        "worker": worker,
+        "permits": permits,
+        "orphan_types": orphans,
+        "planned": planned_rows,
+        "deputy_of": deputy_of,
+    }
+
+
 def dismiss_worker(book: Book, worker_id: str, *, dismiss_date: date,
                    reason: str = "") -> dict[str, Any]:
     row = worker_by_id(book, worker_id)

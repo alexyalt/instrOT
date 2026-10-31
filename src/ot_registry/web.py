@@ -831,8 +831,9 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         rows = [(r, i) for r, i in summary["rows"] if r.get("worker_id") == worker_id]
         rows.sort(key=lambda p: p[0].get("plan_date") or date.min, reverse=True)
         history = services.worker_history(book, worker_id)
+        impact, _ = safe(services.dismissal_impact, book, worker_id)
         return render_template("worker_card.html", entry=entry, book=book, worker=worker,
-                               rows=rows, history=history)
+                               rows=rows, history=history, impact=impact)
 
     @app.post("/workers/<worker_id>/transfer")
     def worker_transfer(worker_id: str):
@@ -870,6 +871,15 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
                         dismiss_date=dismiss_date, reason=form.get("reason", ""))
         flash("Работник уволен." if not error else error["message"],
               "ok" if not error else "error")
+        if not error:
+            impact, _ = safe(services.dismissal_impact, book, worker_id)
+            if impact and impact.get("orphan_types"):
+                flash(
+                    "Инструктаж некому проводить по видам: "
+                    + "; ".join(impact["orphan_types"])
+                    + ". Назначьте новый допуск в разделе «Инструктирующие».",
+                    "error",
+                )
         return redirect(url_for("worker_card", worker_id=worker_id))
 
     @app.get("/instructors")
