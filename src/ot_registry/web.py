@@ -26,7 +26,7 @@ from flask import (
     url_for,
 )
 
-from . import config, deadlines, manual_mode, migrations, printing, registration, reports, services, validation
+from . import config, deadlines, manual_mode, migrations, navigation, printing, registration, reports, services, validation
 from .errors import (
     AppError,
     BookChangedError,
@@ -191,10 +191,37 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         cat = catalog()
         org_uuid = current_org_uuid()
         entry = cat.get(org_uuid) if org_uuid else None
+
+        brand_color = ""
+        brand_text = "#ffffff"
+        nav_items: list[navigation.NavItem] = []
+        org_heading = ""
+
+        if entry is not None:
+            # Цвет и порядок закладок хранятся в книге, но шапка должна
+            # работать даже при недоступном файле — читаем осторожно.
+            try:
+                book = load_book(entry)
+                brand_color = navigation.normalize_color(
+                    book.org_value("brand_color", entry.color or "#1F4E79")
+                )
+                nav_items = navigation.ordered_items(book.org_value("nav_order"))
+                org_heading = book.org_value("full_name") or book.org_value("name") or entry.name
+            except Exception:
+                brand_color = navigation.normalize_color(entry.color or "#1F4E79")
+                nav_items = navigation.ordered_items("")
+                org_heading = entry.name
+            brand_text = navigation.contrast_text(brand_color)
+
         return {
             "csrf_token": session.get("csrf", ""),
             "organizations": cat.entries,
             "current_org": entry,
+            "brand_color": brand_color,
+            "brand_text": brand_text,
+            "nav_items": nav_items,
+            "org_heading": org_heading,
+            "active_nav": navigation.active_key(request),
             "flash_errors": [],
         }
 
@@ -1049,7 +1076,17 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         book, error = safe(load_book, entry)
         if error:
             return render_template("org_error.html", error=error, entry=entry)
-        return render_template("settings.html", entry=entry, book=book)
+        return render_template(
+            "settings.html",
+            entry=entry,
+            book=book,
+            nav_items=navigation.ordered_items(book.org_value("nav_order")),
+            nav_full=[navigation.ITEM_BY_KEY[k] for k in navigation.DEFAULT_ORDER],
+            brand_colors=navigation.BRAND_COLORS,
+            current_color=navigation.normalize_color(
+                book.org_value("brand_color", entry.color or "#1F4E79")
+            ),
+        )
 
     @app.post("/settings")
     def settings_save():
@@ -1075,6 +1112,52 @@ def create_app(*, data_dir: Path | None = None, start_token: str | None = None,
         flash("Настройки сохранены." if not error else error["message"],
               "ok" if not error else "error")
         return redirect(url_for("settings_page"))
+
+    @app.post("/settings/brand")
+    def settings_brand():
+        """Цвет фирмы: влияет на шапку и активную закладку."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        color = navigation.normalize_color(form.get("brand_color", ""), "#1F4E79")
+        book.set_org_value("brand_color", color)
+        entry.color = color
+        cat.save()
+        from .excel_store import save_book
+
+        _, error = safe(save_book, book, action="settings_brand",
+                        reason=f"Изменён цвет фирмы: {color}")
+        flash("Цвет фирмы сохранён." if not error else error["message"],
+              "ok" if not error else "error")
+        return redirect(url_for("settings_page"))
+
+    @app.post("/settings/nav")
+    def settings_nav():
+        """Порядок закладок: вверх/вниз и сброс."""
+        cat, entry = require_org()
+        book, error = safe(load_book, entry)
+        if error:
+            return render_template("org_error.html", error=error, entry=entry)
+        form = request.form.to_dict()
+        current = book.org_value("nav_order")
+        action = form.get("action", "")
+        if action == "reset":
+            updated = ""
+            note = "Порядок закладок сброшен"
+        else:
+            key = form.get("key", "")
+            direction = "up" if action == "up" else "down"
+            updated = navigation.move(current, key, direction)
+            item = navigation.ITEM_BY_KEY.get(key)
+            note = f"Закладка «{item.label if item else key}» перемещена"
+        book.set_org_value("nav_order", updated)
+        from .excel_store import save_book
+
+        _, error = safe(save_book, book, action="settings_nav", reason=note)
+        flash(note if not error else error["message"], "ok" if not error else "error")
+        return redirect(url_for("settings_page") + "#nav")
 
     @app.get("/journal")
     def journal_view():

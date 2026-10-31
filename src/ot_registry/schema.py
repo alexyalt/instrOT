@@ -235,6 +235,8 @@ ORG_KEY = {
     "upcoming_days": "Порог предстоящих, дней",
     "default_period": "Периодичность по умолчанию, мес",
     "custom_forms": "Индивидуальные формы",
+    "brand_color": "Цвет фирмы",
+    "nav_order": "Порядок закладок",
     "created_at": "Создана",
     "updated_at": "Обновлена",
     "counter_ot": "Счётчик ОТ",

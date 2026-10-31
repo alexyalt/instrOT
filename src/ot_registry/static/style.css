@@ -34,10 +34,29 @@ a { color: var(--accent); }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 20px;
+  padding: 12px 22px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text, #fff);
 }
+
+.brand { min-width: 0; }
+
+.brand-org {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: .2px;
+  overflow-wrap: anywhere;
+}
+
+.brand-sub {
+  font-size: 12px;
+  opacity: .82;
+  margin-top: 2px;
+}
+
+.page-head { margin-bottom: 14px; }
+.org-title { margin: 0 0 2px; font-size: 26px; }
 
 .brand-link {
   color: #fff;
@@ -73,9 +92,19 @@ a { color: var(--accent); }
   text-decoration: none;
   font-size: 14px;
   border-bottom: 3px solid transparent;
+  border-radius: 6px 6px 0 0;
+  transition: background .12s ease;
 }
 
 .mainnav a:hover { background: var(--accent-soft); border-bottom-color: var(--accent); }
+
+/* Активная закладка: цвет фирмы с прозрачностью около 50% */
+.nav-tab-active {
+  background: color-mix(in srgb, var(--accent) 50%, #ffffff);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+  color: var(--accent-text, #12222e);
+}
 
 .content { padding: 18px 20px 40px; max-width: 1240px; margin: 0 auto; }
 
@@ -118,6 +147,28 @@ table.data th {
   top: 0;
   font-size: 13px;
 }
+
+/* Сортировка: заголовок выглядит нажимаемым */
+table.data th.sortable {
+  cursor: pointer;
+  user-select: none;
+  padding-right: 20px;
+  position: relative;
+  white-space: nowrap;
+}
+
+table.data th.sortable::after {
+  content: "↕";
+  position: absolute;
+  right: 6px;
+  opacity: .32;
+  font-size: 11px;
+}
+
+table.data th.sort-asc::after { content: "▲"; opacity: .8; }
+table.data th.sort-desc::after { content: "▼"; opacity: .8; }
+table.data th.sortable:hover { background: #e2e9f1; }
+table.data th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 table.data tr:hover td { background: #f7fafd; }
 
@@ -222,7 +273,15 @@ ul.errors { margin: 6px 0 0; padding-left: 18px; color: var(--danger); font-size
   padding: 0;
   list-style: none;
 }
-.autocomplete-list li { padding: 7px 10px; cursor: pointer; font-size: 14px; }
+.autocomplete-list li {
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  /* Длинные ФИО с должностью переносятся, а не обрезаются */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
 .autocomplete-list li.active, .autocomplete-list li:hover { background: var(--accent-soft); }
 
 .danger-zone { border-color: #e4b3b8; background: #fff8f8; }

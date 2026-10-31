@@ -8,7 +8,8 @@ from datetime import date
 from pathlib import Path
 
 APP_NAME = "instrOT"
-APP_TITLE = "Учёт инструктажей по охране труда"
+APP_FULL_TITLE = "Система контроля инструктажей по охране труда"
+APP_TITLE = "Система контроля инструктажей по ОТ"
 VERSION = "1.0.0.dev0"
 
 SCHEMA_VERSION = 1

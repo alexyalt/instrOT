@@ -275,6 +275,7 @@ def create_book(
     director: str = "",
     ot_specialist: str = "",
     with_demo_data: bool = False,
+    color: str = "",
 ) -> Book:
     """Создать новую книгу организации по текущей схеме.
 
@@ -319,6 +320,8 @@ def create_book(
         "soon_days": config.DEFAULT_SOON_DAYS,
         "upcoming_days": config.DEFAULT_UPCOMING_DAYS,
         "default_period": config.DEFAULT_PERIOD_MONTHS,
+        "brand_color": color or "#1F4E79",
+        "nav_order": "",
         "created_at": now.date(),
         "updated_at": now.date(),
         "counter_ot": 0,
